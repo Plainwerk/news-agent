@@ -10,7 +10,8 @@
       "WebFetch(domain:www.reuters.com)",
       "WebFetch(domain:github.com)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(git config *)"
     ]
   }
 }
