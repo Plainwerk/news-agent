@@ -1,0 +1,5 @@
+# RSS-Parsing
+feedparser==6.0.11
+
+# HTTP-Requests (für spätere Erweiterungen nützlich)
+requests==2.32.3
