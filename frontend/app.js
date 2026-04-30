@@ -19,7 +19,53 @@ const SPEC_CSS = {
   'Agentur':      'spec-agentur',
 };
 
-// ── Category keywords (client-side filter) ────────────────────────
+// ── Topic icons ───────────────────────────────────────────────────
+const ICON_RULES = [
+  { kws: ['ukraine', 'krieg', 'militär', 'waffe', 'soldat', 'angriff', 'bomben',
+          'iran-krieg', 'iran krieg', 'gefecht', 'kampf', 'artillerie'], icon: '🔥' },
+  { kws: ['trump', 'pentagon', 'washington', 'biden', 'kongress', 'artemis',
+          'us-notenbank', 'us-präsident', 'white house'], icon: '🇺🇸' },
+  { kws: ['putin', 'russland', 'moskau', 'kreml', 'russisch'], icon: '🇷🇺' },
+  { kws: ['iran', 'nahost', 'israel', 'gaza', 'palästin', 'terror',
+          'messerangriff', 'islamisch'], icon: '🕌' },
+  { kws: ['china', 'peking', 'beijing', 'chinesisch'], icon: '🇨🇳' },
+  { kws: ['eu-', ' eu ', 'europäisch', 'brüssel', 'eu-kommission',
+          'europa ', 'europarat'], icon: '🇪🇺' },
+  { kws: ['charles', 'könig', 'royal', 'kate', 'william', 'prinz',
+          'hochzeit', 'krönung'], icon: '👑' },
+  { kws: ['bundesregierung', 'bundestag', 'koalition', 'kanzler',
+          'merz', 'scholz', 'habeck', 'regierung', 'bundesrat',
+          'aktionsplan', 'gesetzentwurf'], icon: '🏛️' },
+  { kws: ['inflation', 'leitzins', 'fed ', 'ezb', 'notenbank', 'aktie',
+          'börse', 'aldi', 'porsche', 'unicredit', 'verbraucherpreis',
+          'umsatz', 'gewinn', 'opec', 'öl', 'discounter', 'finanz',
+          'haushalt', 'rente', 'bank'], icon: '💰' },
+  { kws: ['ki ', 'künstliche intelligenz', 'facebook', 'meta ',
+          'instagram', 'software', 'technologie', 'digital', 'gaming',
+          'computer', 'apple', 'google', 'darkest files'], icon: '🤖' },
+  { kws: ['krankenhaus', 'krankenkasse', 'gesundheit', 'versicherung',
+          'medizin', 'arzt', 'patienten', 'krankenversicherung'], icon: '🏥' },
+  { kws: ['gericht', 'urteil', 'klage', 'prozess', 'haft', 'freispruch',
+          'verurteil', 'anklage', 'straftat', 'terroristin', 'raf'], icon: '⚖️' },
+  { kws: ['maritime', 'bundeswehr', 'nato', 'militär', 'sicherheit',
+          'verteidigung'], icon: '🛡️' },
+  { kws: ['klima', 'umwelt', 'co2', 'energie', 'solar', 'wind',
+          'nachhaltigkeit'], icon: '🌍' },
+  { kws: ['wal', 'tier', 'natur', 'buckelwal', 'wildtier'], icon: '🐋' },
+  { kws: ['musik', 'film', 'prada', 'kunst', 'kultur', 'berlinale',
+          'oscar', 'streaming'], icon: '🎭' },
+  { kws: ['sport', 'fußball', 'bundesliga', 'tennis', 'olympia', 'hsv'], icon: '⚽' },
+];
+
+function getTopicIcon(label) {
+  const lower = label.toLowerCase();
+  for (const { kws, icon } of ICON_RULES) {
+    if (kws.some(kw => lower.includes(kw))) return icon;
+  }
+  return '📰';
+}
+
+// ── Category keywords ─────────────────────────────────────────────
 const CATEGORY_KEYWORDS = {
   'Politik':      ['trump', 'putin', 'ukraine', 'merz', 'bundesregierung', 'iran',
                    'nato', 'koalition', 'bundestag', 'krieg', 'kanzler', 'außen',
@@ -31,15 +77,17 @@ const CATEGORY_KEYWORDS = {
                    'bank', 'verbraucherpreis', 'invest', 'finanz', 'markt'],
   'Gesellschaft': ['krankenhaus', 'krankenversicherung', 'künstliche intelligenz',
                    'meta', 'facebook', 'instagram', 'musik', 'film', 'gericht',
-                   'klima', 'gesundheit', 'bildung', 'jugend', 'ki ', ' ki-',
-                   'technologie', 'gaming', 'social media', 'wal', 'tier'],
+                   'klima', 'gesundheit', 'bildung', 'jugend', 'ki ',
+                   'technologie', 'gaming', 'wal', 'tier'],
 };
 
 // ── State ─────────────────────────────────────────────────────────
 let allTopics      = [];
 let activeCategory = 'Alle';
 let activeDate     = '';
-const loadedIds    = new Set();
+const topicsById   = {};
+const framingCache = new Map();
+let   bsModal      = null;
 
 // ── Utilities ─────────────────────────────────────────────────────
 function esc(s) {
@@ -66,7 +114,6 @@ function hide(id) { const el = document.getElementById(id); if (el) el.style.dis
 // ── Spectrum bar ──────────────────────────────────────────────────
 function spectrumBar(labels, height, showAxis) {
   const present = new Set(labels);
-
   const segs = SPECTRUM_ORDER.map(label => {
     const color = present.has(label) ? SPECTRUM_COLORS[label] : 'var(--seg-off)';
     return `<div class="spectrum-seg" style="height:${height}px;background:${color}" title="${esc(label)}"></div>`;
@@ -105,96 +152,38 @@ function matchesCategory(topic) {
   return kws.some(kw => lbl.includes(kw));
 }
 
-// ── Hero ──────────────────────────────────────────────────────────
-function renderHero(topic) {
-  if (!topic) { hide('hero-section'); return; }
-  show('hero-section');
+// ── Modal ─────────────────────────────────────────────────────────
+async function openModal(id) {
+  const meta = topicsById[id];
 
-  document.getElementById('hero-section').innerHTML = `
-    <div class="hero-card">
-      <div class="hero-eyebrow">Top-Thema</div>
-      <h1 class="hero-title">${esc(topic.label)}</h1>
-      ${spectrumBar(topic.spectrum_labels, 16, true)}
-      ${topic.faktenkern
-        ? `<p class="hero-faktenkern">${esc(truncate(topic.faktenkern, 240))}</p>`
-        : ''}
-      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-        <span class="hero-meta">
-          ${topic.article_count} Artikel &nbsp;·&nbsp; ${topic.spectrum_score} Spektrum-Ebenen
-          ${topic.framing_count > 0 ? `&nbsp;·&nbsp; <span class="has-framing">${topic.framing_count} Framings</span>` : ''}
-        </span>
-        <button class="btn-hero-detail" id="btn-${topic.id}"
-                onclick="toggleDetail(${topic.id})">
-          Details &amp; Framing ↓
-        </button>
-      </div>
-      <div class="collapse" id="detail-${topic.id}">
-        <div class="detail-body" id="detail-body-${topic.id}">
-          <div class="spinner-mini">Lädt…</div>
-        </div>
-      </div>
-    </div>`;
-}
+  // Fill header immediately (no async wait needed)
+  document.getElementById('modal-title').textContent   = meta?.label ?? '…';
+  document.getElementById('modal-meta').textContent    = meta
+    ? `${meta.article_count} Artikel · ${meta.spectrum_score} Spektrum-Ebenen`
+    : '';
+  document.getElementById('modal-spectrum').innerHTML  = meta
+    ? spectrumBar(meta.spectrum_labels, 12, true)
+    : '';
+  document.getElementById('modal-body').innerHTML =
+    '<div class="spinner-mini">Lade Framing-Analyse…</div>';
 
-// ── Card ──────────────────────────────────────────────────────────
-function buildCard(topic) {
-  const col = document.createElement('div');
-  col.className = 'col-12 col-md-6 col-xl-4';
-  col.innerHTML = `
-    <div class="topic-card h-100">
-      <div class="card-inner">
-        <div class="card-title-text">${esc(topic.label)}</div>
-        ${spectrumBar(topic.spectrum_labels, 8, false)}
-        <div class="card-meta">
-          ${topic.article_count} Artikel
-          ${topic.framing_count > 0
-            ? `<span class="has-framing ms-2">● ${topic.framing_count} Framings</span>`
-            : ''}
-        </div>
-      </div>
-      <button class="toggle-btn" id="btn-${topic.id}"
-              onclick="toggleDetail(${topic.id})">
-        Details anzeigen ↓
-      </button>
-      <div class="collapse" id="detail-${topic.id}">
-        <div class="detail-body" id="detail-body-${topic.id}">
-          <div class="spinner-mini">Lädt…</div>
-        </div>
-      </div>
-    </div>`;
-  return col;
-}
+  if (!bsModal) bsModal = new bootstrap.Modal(document.getElementById('topic-modal'));
+  bsModal.show();
 
-// ── Toggle detail ─────────────────────────────────────────────────
-function toggleDetail(id) {
-  const collapse = document.getElementById(`detail-${id}`);
-  const btn      = document.getElementById(`btn-${id}`);
-  const bsc      = bootstrap.Collapse.getOrCreateInstance(collapse, { toggle: false });
-  const isHero   = !!collapse.closest('.hero-card');
-
-  if (collapse.classList.contains('show')) {
-    bsc.hide();
-    if (btn) btn.innerHTML = isHero ? 'Details &amp; Framing ↓' : 'Details anzeigen ↓';
-    return;
+  // Load framing (cached after first fetch)
+  try {
+    if (!framingCache.has(id)) {
+      framingCache.set(id, await apiFetch(`/api/topics/${id}/framing`));
+    }
+    renderModalBody(framingCache.get(id));
+  } catch (e) {
+    document.getElementById('modal-body').innerHTML =
+      `<p class="text-danger">Fehler: ${esc(e.message)}</p>`;
   }
-
-  bsc.show();
-  if (btn) btn.innerHTML = isHero ? 'Details &amp; Framing ↑' : 'Details ausblenden ↑';
-
-  if (loadedIds.has(id)) return;
-  loadedIds.add(id);
-
-  apiFetch(`/api/topics/${id}/framing`)
-    .then(data => renderDetail(id, data))
-    .catch(e => {
-      const body = document.getElementById(`detail-body-${id}`);
-      if (body) body.innerHTML = `<p class="text-danger small">Fehler: ${esc(e.message)}</p>`;
-    });
 }
 
-// ── Detail content ────────────────────────────────────────────────
-function renderDetail(id, data) {
-  const body = document.getElementById(`detail-body-${id}`);
+function renderModalBody(data) {
+  const body = document.getElementById('modal-body');
   if (!body) return;
 
   let html = '';
@@ -235,9 +224,9 @@ function renderDetail(id, data) {
     }
   }
 
-  // Source chips (one per source, deduped)
+  // Source chips
   if (data.articles?.length) {
-    const seen = new Set();
+    const seen  = new Set();
     const chips = data.articles
       .filter(a => a.url && !seen.has(a.source_name) && seen.add(a.source_name))
       .map(a => `<a href="${esc(a.url)}" target="_blank" rel="noopener" class="source-chip">${esc(a.source_name)} ↗</a>`)
@@ -248,12 +237,64 @@ function renderDetail(id, data) {
   body.innerHTML = html;
 }
 
+// ── Hero ──────────────────────────────────────────────────────────
+function renderHero(topic) {
+  if (!topic) { hide('hero-section'); return; }
+  show('hero-section');
+
+  document.getElementById('hero-section').innerHTML = `
+    <div class="hero-card">
+      <div class="hero-eyebrow">Top-Thema</div>
+      <h1 class="hero-title">${esc(topic.label)}</h1>
+      ${spectrumBar(topic.spectrum_labels, 16, true)}
+      ${topic.faktenkern
+        ? `<p class="hero-faktenkern">${esc(truncate(topic.faktenkern, 240))}</p>`
+        : ''}
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <span class="hero-meta">
+          ${topic.article_count} Artikel &nbsp;·&nbsp; ${topic.spectrum_score} Spektrum-Ebenen
+          ${topic.framing_count > 0
+            ? `&nbsp;·&nbsp; <span class="has-framing">${topic.framing_count} Framings</span>`
+            : ''}
+        </span>
+        <button class="btn-hero-detail" onclick="openModal(${topic.id})">
+          Details &amp; Framing →
+        </button>
+      </div>
+    </div>`;
+}
+
+// ── Card ──────────────────────────────────────────────────────────
+function buildCard(topic) {
+  const col  = document.createElement('div');
+  col.className = 'col-12 col-md-6 col-xl-4';
+
+  const icon = getTopicIcon(topic.label);
+
+  col.innerHTML = `
+    <div class="topic-card h-100" onclick="openModal(${topic.id})">
+      <div class="card-inner">
+        <div class="card-icon">${icon}</div>
+        <div class="card-title-text">${esc(topic.label)}</div>
+        ${spectrumBar(topic.spectrum_labels, 8, false)}
+        <div class="card-meta">
+          ${topic.article_count} Artikel
+          ${topic.framing_count > 0
+            ? `<span class="has-framing ms-2">● ${topic.framing_count} Framings</span>`
+            : ''}
+        </div>
+      </div>
+      <div class="card-footer-hint">Framing ansehen →</div>
+    </div>`;
+
+  return col;
+}
+
 // ── Render topics ─────────────────────────────────────────────────
 function renderTopics() {
   const filtered = allTopics.filter(matchesCategory);
   const grid     = document.getElementById('topics-grid');
   grid.innerHTML  = '';
-  loadedIds.clear();
 
   if (!filtered.length) {
     hide('hero-section');
@@ -261,6 +302,9 @@ function renderTopics() {
     grid.innerHTML = '<div class="col"><p class="text-muted text-center py-5">Keine Themen für diese Auswahl.</p></div>';
     return;
   }
+
+  // Populate lookup for openModal
+  for (const t of filtered) topicsById[t.id] = t;
 
   const [hero, ...rest] = filtered;
   renderHero(hero);
