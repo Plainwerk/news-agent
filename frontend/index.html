@@ -27,14 +27,33 @@
 
     body {
       font-family: 'Inter', system-ui, -apple-system, sans-serif;
-      background: var(--bg);
+      background-color: var(--bg);
+      background-image: url('assets/top-view-old-french-newspaper-pieces.jpg');
+      background-size: cover;
+      background-attachment: fixed;
+      background-position: center;
       color: #111827;
       -webkit-font-smoothing: antialiased;
     }
 
+    /* Semi-transparent overlay so content stays readable */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: rgba(255,255,255,0.82);
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    /* Everything above the overlay */
+    .site-nav, .container-xl, .modal { position: relative; z-index: 1; }
+
     /* ── Navbar ─────────────────────────────────────────────── */
     .site-nav {
-      background: #fff;
+      background: rgba(255,255,255,0.85);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
       box-shadow: 0 1px 8px rgba(0,0,0,.08);
       position: sticky;
       top: 0;
@@ -178,7 +197,9 @@
 
     /* ── Cards ──────────────────────────────────────────────── */
     .topic-card {
-      background: var(--card-bg);
+      background: rgba(255,255,255,0.88);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
       border-radius: 16px;
       border: 1px solid var(--border);
       border-top-width: 3px;
@@ -195,9 +216,9 @@
     }
 
     /* Category accent colours */
-    .cat-politik      { border-top-color: #3b82f6; background: #f0f7ff; }
-    .cat-wirtschaft   { border-top-color: #10b981; background: #f0fdf4; }
-    .cat-gesellschaft { border-top-color: #f59e0b; background: #fffbeb; }
+    .cat-politik      { border-top-color: #3b82f6; background: rgba(240,247,255,0.92); }
+    .cat-wirtschaft   { border-top-color: #10b981; background: rgba(240,253,244,0.92); }
+    .cat-gesellschaft { border-top-color: #f59e0b; background: rgba(255,251,235,0.92); }
 
     .card-inner { padding: 1.25rem 1.25rem 0.875rem; position: relative; }
 
