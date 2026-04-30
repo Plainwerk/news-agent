@@ -1,14 +1,14 @@
 'use strict';
 
-// ── Spectrum ──────────────────────────────────────────────────────
-const SPECTRUM_ORDER  = ['links', 'mitte-links', 'mitte', 'mitte-rechts', 'rechts'];
-const SPECTRUM_COLORS = {
-  'links':        '#e63946',
-  'mitte-links':  '#f4845f',
-  'mitte':        '#adb5bd',
-  'mitte-rechts': '#5b9bd5',
-  'rechts':       '#1a3a5c',
+// ── Spectrum gradient bar ─────────────────────────────────────────
+const SPECTRUM_POSITIONS = {
+  'links':        0,
+  'mitte-links':  25,
+  'mitte':        50,
+  'mitte-rechts': 75,
+  'rechts':       100,
 };
+
 const SPEC_CSS = {
   'links':        'spec-links',
   'mitte-links':  'spec-mitte-links',
@@ -19,20 +19,20 @@ const SPEC_CSS = {
   'Agentur':      'spec-agentur',
 };
 
-// ── Topic icons ───────────────────────────────────────────────────
+// ── Topic icons (null = no icon) ──────────────────────────────────
 const ICON_RULES = [
-  { kws: ['ukraine', 'krieg', 'militär', 'waffe', 'soldat', 'angriff', 'bomben',
-          'iran-krieg', 'iran krieg', 'gefecht', 'kampf', 'artillerie'], icon: '🔥' },
-  { kws: ['trump', 'pentagon', 'washington', 'biden', 'kongress', 'artemis',
-          'us-notenbank', 'us-präsident', 'white house'], icon: '🇺🇸' },
+  { kws: ['ukraine', 'krieg', 'militär', 'waffe', 'soldat', 'angriff',
+          'bomben', 'iran-krieg', 'iran krieg', 'gefecht', 'kampf'], icon: '🔥' },
+  { kws: ['trump', 'pentagon', 'washington', 'biden', 'kongress',
+          'artemis', 'us-notenbank', 'us-präsident', 'white house'], icon: '🇺🇸' },
   { kws: ['putin', 'russland', 'moskau', 'kreml', 'russisch'], icon: '🇷🇺' },
-  { kws: ['iran', 'nahost', 'israel', 'gaza', 'palästin', 'terror',
-          'messerangriff', 'islamisch'], icon: '🕌' },
+  { kws: ['iran', 'nahost', 'israel', 'gaza', 'palästin',
+          'terror', 'messerangriff', 'islamisch'], icon: '🕌' },
   { kws: ['china', 'peking', 'beijing', 'chinesisch'], icon: '🇨🇳' },
   { kws: ['eu-', ' eu ', 'europäisch', 'brüssel', 'eu-kommission',
-          'europa ', 'europarat'], icon: '🇪🇺' },
-  { kws: ['charles', 'könig', 'royal', 'kate', 'william', 'prinz',
-          'hochzeit', 'krönung'], icon: '👑' },
+          'europarat'], icon: '🇪🇺' },
+  { kws: ['charles', 'könig', 'royal', 'kate', 'william',
+          'prinz', 'hochzeit', 'krönung'], icon: '👑' },
   { kws: ['bundesregierung', 'bundestag', 'koalition', 'kanzler',
           'merz', 'scholz', 'habeck', 'regierung', 'bundesrat',
           'aktionsplan', 'gesetzentwurf'], icon: '🏛️' },
@@ -41,19 +41,19 @@ const ICON_RULES = [
           'umsatz', 'gewinn', 'opec', 'öl', 'discounter', 'finanz',
           'haushalt', 'rente', 'bank'], icon: '💰' },
   { kws: ['ki ', 'künstliche intelligenz', 'facebook', 'meta ',
-          'instagram', 'software', 'technologie', 'digital', 'gaming',
-          'computer', 'apple', 'google', 'darkest files'], icon: '🤖' },
+          'instagram', 'software', 'technologie', 'digital',
+          'gaming', 'computer', 'apple', 'google'], icon: '🤖' },
   { kws: ['krankenhaus', 'krankenkasse', 'gesundheit', 'versicherung',
           'medizin', 'arzt', 'patienten', 'krankenversicherung'], icon: '🏥' },
   { kws: ['gericht', 'urteil', 'klage', 'prozess', 'haft', 'freispruch',
           'verurteil', 'anklage', 'straftat', 'terroristin', 'raf'], icon: '⚖️' },
-  { kws: ['maritime', 'bundeswehr', 'nato', 'militär', 'sicherheit',
+  { kws: ['maritime', 'bundeswehr', 'nato', 'sicherheit',
           'verteidigung'], icon: '🛡️' },
   { kws: ['klima', 'umwelt', 'co2', 'energie', 'solar', 'wind',
           'nachhaltigkeit'], icon: '🌍' },
   { kws: ['wal', 'tier', 'natur', 'buckelwal', 'wildtier'], icon: '🐋' },
-  { kws: ['musik', 'film', 'prada', 'kunst', 'kultur', 'berlinale',
-          'oscar', 'streaming'], icon: '🎭' },
+  { kws: ['musik', 'film', 'prada', 'kunst', 'kultur',
+          'berlinale', 'oscar', 'streaming'], icon: '🎭' },
   { kws: ['sport', 'fußball', 'bundesliga', 'tennis', 'olympia', 'hsv'], icon: '⚽' },
 ];
 
@@ -62,10 +62,10 @@ function getTopicIcon(label) {
   for (const { kws, icon } of ICON_RULES) {
     if (kws.some(kw => lower.includes(kw))) return icon;
   }
-  return '📰';
+  return null; // no fallback icon
 }
 
-// ── Category keywords ─────────────────────────────────────────────
+// ── Category detection ────────────────────────────────────────────
 const CATEGORY_KEYWORDS = {
   'Politik':      ['trump', 'putin', 'ukraine', 'merz', 'bundesregierung', 'iran',
                    'nato', 'koalition', 'bundestag', 'krieg', 'kanzler', 'außen',
@@ -80,6 +80,33 @@ const CATEGORY_KEYWORDS = {
                    'klima', 'gesundheit', 'bildung', 'jugend', 'ki ',
                    'technologie', 'gaming', 'wal', 'tier'],
 };
+
+function getCategory(label) {
+  const lower = label.toLowerCase();
+  for (const [cat, kws] of Object.entries(CATEGORY_KEYWORDS)) {
+    if (kws.some(kw => lower.includes(kw))) return cat;
+  }
+  return null;
+}
+
+// ── Blocked topic patterns ────────────────────────────────────────
+const BLOCKED_PATTERNS = [
+  /^nachrichten aus /i,
+  /^fragen und antworten/i,
+  /^vor gericht$/i,
+  /^aktuelles$/i,
+  /^aktuelles zum /i,
+];
+
+function isBlocked(label) {
+  return BLOCKED_PATTERNS.some(p => p.test(label.trim()));
+}
+
+// ── Qualification filter ──────────────────────────────────────────
+function isQualified(topic) {
+  if (isBlocked(topic.label)) return false;
+  return topic.framing_count > 0 || topic.spectrum_score >= 2;
+}
 
 // ── State ─────────────────────────────────────────────────────────
 let allTopics      = [];
@@ -111,13 +138,16 @@ async function apiFetch(path) {
 function show(id) { const el = document.getElementById(id); if (el) el.style.display = ''; }
 function hide(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
 
-// ── Spectrum bar ──────────────────────────────────────────────────
+// ── Spectrum gradient bar ─────────────────────────────────────────
 function spectrumBar(labels, height, showAxis) {
   const present = new Set(labels);
-  const segs = SPECTRUM_ORDER.map(label => {
-    const color = present.has(label) ? SPECTRUM_COLORS[label] : 'var(--seg-off)';
-    return `<div class="spectrum-seg" style="height:${height}px;background:${color}" title="${esc(label)}"></div>`;
-  }).join('');
+  const dotSz   = height + 2;
+
+  const dots = Object.entries(SPECTRUM_POSITIONS)
+    .filter(([lbl]) => present.has(lbl))
+    .map(([lbl, pct]) =>
+      `<div class="sgdot" style="left:${pct}%;width:${dotSz}px;height:${dotSz}px" title="${esc(lbl)}"></div>`
+    ).join('');
 
   const extras = ['öRR', 'Agentur'].filter(l => present.has(l));
   const extraHtml = extras.length
@@ -135,7 +165,7 @@ function spectrumBar(labels, height, showAxis) {
     : '';
 
   return `<div class="spectrum-bar-wrap">
-    <div class="spectrum-bar" style="border-radius:${height / 2}px">${segs}</div>
+    <div class="sgbar" style="height:${height}px;border-radius:${height / 2}px">${dots}</div>
     ${axis}
   </div>`;
 }
@@ -144,24 +174,22 @@ function specBadge(label) {
   return `<span class="spec-badge ${SPEC_CSS[label] || 'spec-agentur'}">${esc(label)}</span>`;
 }
 
-// ── Category filter ───────────────────────────────────────────────
+// ── Category filter (pills) ───────────────────────────────────────
 function matchesCategory(topic) {
   if (activeCategory === 'Alle') return true;
   const kws = CATEGORY_KEYWORDS[activeCategory] || [];
-  const lbl = topic.label.toLowerCase();
-  return kws.some(kw => lbl.includes(kw));
+  return kws.some(kw => topic.label.toLowerCase().includes(kw));
 }
 
 // ── Modal ─────────────────────────────────────────────────────────
 async function openModal(id) {
   const meta = topicsById[id];
 
-  // Fill header immediately (no async wait needed)
-  document.getElementById('modal-title').textContent   = meta?.label ?? '…';
-  document.getElementById('modal-meta').textContent    = meta
+  document.getElementById('modal-title').textContent  = meta?.label ?? '…';
+  document.getElementById('modal-meta').textContent   = meta
     ? `${meta.article_count} Artikel · ${meta.spectrum_score} Spektrum-Ebenen`
     : '';
-  document.getElementById('modal-spectrum').innerHTML  = meta
+  document.getElementById('modal-spectrum').innerHTML = meta
     ? spectrumBar(meta.spectrum_labels, 12, true)
     : '';
   document.getElementById('modal-body').innerHTML =
@@ -170,7 +198,6 @@ async function openModal(id) {
   if (!bsModal) bsModal = new bootstrap.Modal(document.getElementById('topic-modal'));
   bsModal.show();
 
-  // Load framing (cached after first fetch)
   try {
     if (!framingCache.has(id)) {
       framingCache.set(id, await apiFetch(`/api/topics/${id}/framing`));
@@ -186,21 +213,16 @@ function renderModalBody(data) {
   const body = document.getElementById('modal-body');
   if (!body) return;
 
-  let html = '';
-
-  // Faktenkern
-  html += `<div class="detail-section-label">Faktenkern</div>
+  let html = `<div class="detail-section-label">Faktenkern</div>
     <div class="faktenkern-box">${esc(data.faktenkern || '(keine Analyse verfügbar)')}</div>`;
 
-  // Framing table
   if (data.framing_sources?.length) {
     html += `<div class="detail-section-label">Framing nach Quelle</div>
       <div class="framing-table">`;
     for (const fs of data.framing_sources) {
       html += `<div class="framing-row">
         <div class="framing-cell framing-source">
-          ${specBadge(fs.spectrum_label)}
-          <span>${esc(fs.quelle)}</span>
+          ${specBadge(fs.spectrum_label)}<span>${esc(fs.quelle)}</span>
         </div>
         <div class="framing-cell">${esc(fs.framing)}</div>
       </div>`;
@@ -208,12 +230,10 @@ function renderModalBody(data) {
     html += `</div>`;
   }
 
-  // Wortwahl
   if (data.wortwahl_diffs?.length) {
     html += `<div class="detail-section-label mt-3">Wortwahl</div>`;
     for (const wd of data.wortwahl_diffs) {
-      html += `<div class="wort-konzept">${esc(wd.konzept)}</div>
-        <div class="wort-grid">`;
+      html += `<div class="wort-konzept">${esc(wd.konzept)}</div><div class="wort-grid">`;
       for (const v of wd.varianten) {
         html += `<div class="wort-item">
           <span class="wort-source">${esc(v.quelle)}</span>
@@ -224,7 +244,6 @@ function renderModalBody(data) {
     }
   }
 
-  // Source chips
   if (data.articles?.length) {
     const seen  = new Set();
     const chips = data.articles
@@ -266,15 +285,17 @@ function renderHero(topic) {
 
 // ── Card ──────────────────────────────────────────────────────────
 function buildCard(topic) {
-  const col  = document.createElement('div');
+  const col = document.createElement('div');
   col.className = 'col-12 col-md-6 col-xl-4';
 
-  const icon = getTopicIcon(topic.label);
+  const icon    = getTopicIcon(topic.label);
+  const cat     = getCategory(topic.label);
+  const catCls  = cat ? `cat-${cat.toLowerCase()}` : '';
 
   col.innerHTML = `
-    <div class="topic-card h-100" onclick="openModal(${topic.id})">
+    <div class="topic-card h-100 ${catCls}" onclick="openModal(${topic.id})">
       <div class="card-inner">
-        <div class="card-icon">${icon}</div>
+        ${icon ? `<div class="card-icon">${icon}</div>` : ''}
         <div class="card-title-text">${esc(topic.label)}</div>
         ${spectrumBar(topic.spectrum_labels, 8, false)}
         <div class="card-meta">
@@ -292,18 +313,20 @@ function buildCard(topic) {
 
 // ── Render topics ─────────────────────────────────────────────────
 function renderTopics() {
-  const filtered = allTopics.filter(matchesCategory);
-  const grid     = document.getElementById('topics-grid');
-  grid.innerHTML  = '';
+  const filtered = allTopics
+    .filter(matchesCategory)
+    .filter(isQualified);
+
+  const grid = document.getElementById('topics-grid');
+  grid.innerHTML = '';
 
   if (!filtered.length) {
     hide('hero-section');
     document.getElementById('stats-bar').textContent = '';
-    grid.innerHTML = '<div class="col"><p class="text-muted text-center py-5">Keine Themen für diese Auswahl.</p></div>';
+    grid.innerHTML = '<div class="col"><p class="text-muted text-center py-5">Keine qualifizierten Themen für diese Auswahl.</p></div>';
     return;
   }
 
-  // Populate lookup for openModal
   for (const t of filtered) topicsById[t.id] = t;
 
   const [hero, ...rest] = filtered;
