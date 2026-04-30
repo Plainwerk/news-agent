@@ -1,6 +1,15 @@
 'use strict';
 
-const SPECTRUM_CLASS = {
+// ── Spectrum ──────────────────────────────────────────────────────
+const SPECTRUM_ORDER  = ['links', 'mitte-links', 'mitte', 'mitte-rechts', 'rechts'];
+const SPECTRUM_COLORS = {
+  'links':        '#e63946',
+  'mitte-links':  '#f4845f',
+  'mitte':        '#adb5bd',
+  'mitte-rechts': '#5b9bd5',
+  'rechts':       '#1a3a5c',
+};
+const SPEC_CSS = {
   'links':        'spec-links',
   'mitte-links':  'spec-mitte-links',
   'mitte':        'spec-mitte',
@@ -10,209 +19,307 @@ const SPECTRUM_CLASS = {
   'Agentur':      'spec-agentur',
 };
 
-// ── Spectrum badge ────────────────────────────────────────────────
-function specBadge(label) {
-  const cls = SPECTRUM_CLASS[label] || 'spec-agentur';
-  return `<span class="spec-badge ${cls}">${escHtml(label)}</span>`;
-}
+// ── Category keywords (client-side filter) ────────────────────────
+const CATEGORY_KEYWORDS = {
+  'Politik':      ['trump', 'putin', 'ukraine', 'merz', 'bundesregierung', 'iran',
+                   'nato', 'koalition', 'bundestag', 'krieg', 'kanzler', 'außen',
+                   'bundeswehr', 'rede', 'wahl', 'frieden', 'minister', 'militär',
+                   'diplomat', 'präsident', 'kongress', 'charles', 'scholz', 'habeck'],
+  'Wirtschaft':   ['inflation', 'fed', 'leitzins', 'börse', 'aktie', 'wirtschaft',
+                   'haushalt', 'aldi', 'porsche', 'unicredit', 'notenbank', 'opec',
+                   'öl', 'gewinn', 'umsatz', 'dax', 'euro', 'ezb', 'handels',
+                   'bank', 'verbraucherpreis', 'invest', 'finanz', 'markt'],
+  'Gesellschaft': ['krankenhaus', 'krankenversicherung', 'künstliche intelligenz',
+                   'meta', 'facebook', 'instagram', 'musik', 'film', 'gericht',
+                   'klima', 'gesundheit', 'bildung', 'jugend', 'ki ', ' ki-',
+                   'technologie', 'gaming', 'social media', 'wal', 'tier'],
+};
 
-function specBar(labels) {
-  return labels.map(specBadge).join(' ');
-}
+// ── State ─────────────────────────────────────────────────────────
+let allTopics      = [];
+let activeCategory = 'Alle';
+let activeDate     = '';
+const loadedIds    = new Set();
 
-// ── DOM helpers ───────────────────────────────────────────────────
-function escHtml(s) {
+// ── Utilities ─────────────────────────────────────────────────────
+function esc(s) {
   return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function show(id)  { document.getElementById(id).style.display = ''; }
-function hide(id)  { document.getElementById(id).style.display = 'none'; }
+function truncate(text, max = 220) {
+  if (!text || text.length <= max) return text || '';
+  const cut = text.lastIndexOf('. ', max);
+  return cut > 0 ? text.slice(0, cut + 1) : text.slice(0, max) + '…';
+}
 
-// ── API ───────────────────────────────────────────────────────────
 async function apiFetch(path) {
   const r = await fetch(path);
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
 
-// ── Card rendering ────────────────────────────────────────────────
-function buildCard(topic) {
-  const colDiv = document.createElement('div');
-  colDiv.className = 'col-12 col-md-6 col-xl-4';
-  colDiv.id = `col-${topic.id}`;
+function show(id) { const el = document.getElementById(id); if (el) el.style.display = ''; }
+function hide(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
 
-  const hasAnalysis = topic.framing_count > 0;
-  const analysisNote = hasAnalysis
-    ? `<span class="text-success">● ${topic.framing_count} Framing${topic.framing_count > 1 ? 's' : ''}</span>`
-    : `<span class="text-muted">○ keine Analyse</span>`;
+// ── Spectrum bar ──────────────────────────────────────────────────
+function spectrumBar(labels, height, showAxis) {
+  const present = new Set(labels);
 
-  colDiv.innerHTML = `
-    <div class="card h-100 topic-card">
-      <div class="card-body pb-2">
-        <h6 class="card-title fw-semibold mb-2">${escHtml(topic.label)}</h6>
-        <div class="spectrum-bar d-flex gap-1 flex-wrap mb-2">
-          ${specBar(topic.spectrum_labels)}
-        </div>
-        <div class="d-flex justify-content-between align-items-center">
-          <small class="text-muted">${topic.article_count} Artikel</small>
-          <small>${analysisNote}</small>
-        </div>
-      </div>
-      <div class="card-footer bg-transparent border-0 pt-0 pb-2">
-        <button class="btn btn-sm btn-outline-secondary w-100 toggle-btn"
-                data-id="${topic.id}" data-loaded="0">
-          Details ▼
+  const segs = SPECTRUM_ORDER.map(label => {
+    const color = present.has(label) ? SPECTRUM_COLORS[label] : 'var(--seg-off)';
+    return `<div class="spectrum-seg" style="height:${height}px;background:${color}" title="${esc(label)}"></div>`;
+  }).join('');
+
+  const extras = ['öRR', 'Agentur'].filter(l => present.has(l));
+  const extraHtml = extras.length
+    ? `<div class="spec-extras">${extras.map(l =>
+        `<div class="spec-dot spec-dot-${l === 'öRR' ? 'oerr' : 'agentur'}" title="${esc(l)}"></div>`
+      ).join('')}</div>`
+    : '';
+
+  const axis = showAxis
+    ? `<div class="spectrum-axis">
+         <span class="spectrum-axis-label">← Links</span>
+         ${extraHtml}
+         <span class="spectrum-axis-label">Rechts →</span>
+       </div>`
+    : '';
+
+  return `<div class="spectrum-bar-wrap">
+    <div class="spectrum-bar" style="border-radius:${height / 2}px">${segs}</div>
+    ${axis}
+  </div>`;
+}
+
+function specBadge(label) {
+  return `<span class="spec-badge ${SPEC_CSS[label] || 'spec-agentur'}">${esc(label)}</span>`;
+}
+
+// ── Category filter ───────────────────────────────────────────────
+function matchesCategory(topic) {
+  if (activeCategory === 'Alle') return true;
+  const kws = CATEGORY_KEYWORDS[activeCategory] || [];
+  const lbl = topic.label.toLowerCase();
+  return kws.some(kw => lbl.includes(kw));
+}
+
+// ── Hero ──────────────────────────────────────────────────────────
+function renderHero(topic) {
+  if (!topic) { hide('hero-section'); return; }
+  show('hero-section');
+
+  document.getElementById('hero-section').innerHTML = `
+    <div class="hero-card">
+      <div class="hero-eyebrow">Top-Thema</div>
+      <h1 class="hero-title">${esc(topic.label)}</h1>
+      ${spectrumBar(topic.spectrum_labels, 16, true)}
+      ${topic.faktenkern
+        ? `<p class="hero-faktenkern">${esc(truncate(topic.faktenkern, 240))}</p>`
+        : ''}
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <span class="hero-meta">
+          ${topic.article_count} Artikel &nbsp;·&nbsp; ${topic.spectrum_score} Spektrum-Ebenen
+          ${topic.framing_count > 0 ? `&nbsp;·&nbsp; <span class="has-framing">${topic.framing_count} Framings</span>` : ''}
+        </span>
+        <button class="btn-hero-detail" id="btn-${topic.id}"
+                onclick="toggleDetail(${topic.id})">
+          Details &amp; Framing ↓
         </button>
       </div>
-      <div class="detail-section collapse" id="detail-${topic.id}">
-        <div class="card-body pt-3" id="detail-body-${topic.id}">
-          <div class="text-muted text-center py-3">
-            <div class="spinner-border spinner-border-sm"></div>
-          </div>
+      <div class="collapse" id="detail-${topic.id}">
+        <div class="detail-body" id="detail-body-${topic.id}">
+          <div class="spinner-mini">Lädt…</div>
         </div>
       </div>
     </div>`;
-
-  colDiv.querySelector('.toggle-btn').addEventListener('click', () => toggleDetail(topic.id));
-  return colDiv;
 }
 
-async function toggleDetail(id) {
-  const btn     = document.querySelector(`[data-id="${id}"]`);
+// ── Card ──────────────────────────────────────────────────────────
+function buildCard(topic) {
+  const col = document.createElement('div');
+  col.className = 'col-12 col-md-6 col-xl-4';
+  col.innerHTML = `
+    <div class="topic-card h-100">
+      <div class="card-inner">
+        <div class="card-title-text">${esc(topic.label)}</div>
+        ${spectrumBar(topic.spectrum_labels, 8, false)}
+        <div class="card-meta">
+          ${topic.article_count} Artikel
+          ${topic.framing_count > 0
+            ? `<span class="has-framing ms-2">● ${topic.framing_count} Framings</span>`
+            : ''}
+        </div>
+      </div>
+      <button class="toggle-btn" id="btn-${topic.id}"
+              onclick="toggleDetail(${topic.id})">
+        Details anzeigen ↓
+      </button>
+      <div class="collapse" id="detail-${topic.id}">
+        <div class="detail-body" id="detail-body-${topic.id}">
+          <div class="spinner-mini">Lädt…</div>
+        </div>
+      </div>
+    </div>`;
+  return col;
+}
+
+// ── Toggle detail ─────────────────────────────────────────────────
+function toggleDetail(id) {
   const collapse = document.getElementById(`detail-${id}`);
-  const bsCollapse = bootstrap.Collapse.getOrCreateInstance(collapse, { toggle: false });
+  const btn      = document.getElementById(`btn-${id}`);
+  const bsc      = bootstrap.Collapse.getOrCreateInstance(collapse, { toggle: false });
+  const isHero   = !!collapse.closest('.hero-card');
 
   if (collapse.classList.contains('show')) {
-    bsCollapse.hide();
-    btn.textContent = 'Details ▼';
+    bsc.hide();
+    if (btn) btn.innerHTML = isHero ? 'Details &amp; Framing ↓' : 'Details anzeigen ↓';
     return;
   }
 
-  bsCollapse.show();
-  btn.textContent = 'Details ▲';
+  bsc.show();
+  if (btn) btn.innerHTML = isHero ? 'Details &amp; Framing ↑' : 'Details ausblenden ↑';
 
-  if (btn.dataset.loaded === '1') return;
-  btn.dataset.loaded = '1';
+  if (loadedIds.has(id)) return;
+  loadedIds.add(id);
 
-  try {
-    const data = await apiFetch(`/api/topics/${id}/framing`);
-    renderDetail(id, data);
-  } catch (e) {
-    document.getElementById(`detail-body-${id}`).innerHTML =
-      `<p class="text-danger small">Fehler beim Laden: ${escHtml(e.message)}</p>`;
-  }
+  apiFetch(`/api/topics/${id}/framing`)
+    .then(data => renderDetail(id, data))
+    .catch(e => {
+      const body = document.getElementById(`detail-body-${id}`);
+      if (body) body.innerHTML = `<p class="text-danger small">Fehler: ${esc(e.message)}</p>`;
+    });
 }
 
+// ── Detail content ────────────────────────────────────────────────
 function renderDetail(id, data) {
   const body = document.getElementById(`detail-body-${id}`);
+  if (!body) return;
+
   let html = '';
 
   // Faktenkern
-  html += `<h6 class="fw-bold text-dark mb-1">Faktenkern</h6>`;
-  html += `<p class="faktenkern-text">${escHtml(data.faktenkern || '(keine Analyse verfügbar)')}</p>`;
+  html += `<div class="detail-section-label">Faktenkern</div>
+    <div class="faktenkern-box">${esc(data.faktenkern || '(keine Analyse verfügbar)')}</div>`;
 
-  // Framing-Unterschiede
-  if (data.framing_sources && data.framing_sources.length) {
-    html += `<h6 class="fw-bold text-dark mb-1 mt-3">Framing</h6>`;
-    html += `<div>`;
+  // Framing table
+  if (data.framing_sources?.length) {
+    html += `<div class="detail-section-label">Framing nach Quelle</div>
+      <div class="framing-table">`;
     for (const fs of data.framing_sources) {
-      html += `<div class="framing-item d-flex gap-2">
-        <span class="framing-quelle">${specBadge(fs.spectrum_label)} ${escHtml(fs.quelle)}</span>
-        <span>${escHtml(fs.framing)}</span>
+      html += `<div class="framing-row">
+        <div class="framing-cell framing-source">
+          ${specBadge(fs.spectrum_label)}
+          <span>${esc(fs.quelle)}</span>
+        </div>
+        <div class="framing-cell">${esc(fs.framing)}</div>
       </div>`;
     }
     html += `</div>`;
   }
 
-  // Wortwahl-Diff
-  if (data.wortwahl_diffs && data.wortwahl_diffs.length) {
-    html += `<h6 class="fw-bold text-dark mb-1 mt-3">Wortwahl</h6>`;
+  // Wortwahl
+  if (data.wortwahl_diffs?.length) {
+    html += `<div class="detail-section-label mt-3">Wortwahl</div>`;
     for (const wd of data.wortwahl_diffs) {
-      html += `<div class="wort-konzept">${escHtml(wd.konzept)}</div>`;
+      html += `<div class="wort-konzept">${esc(wd.konzept)}</div>
+        <div class="wort-grid">`;
       for (const v of wd.varianten) {
-        html += `<div class="wort-var">
-          <span class="wort-quelle">${escHtml(v.quelle)}</span>
-          <span class="text-secondary">„${escHtml(v.bezeichnung)}"</span>
+        html += `<div class="wort-item">
+          <span class="wort-source">${esc(v.quelle)}</span>
+          <span class="wort-term"> „${esc(v.bezeichnung)}"</span>
         </div>`;
       }
+      html += `</div>`;
     }
   }
 
-  // Quellenlinks
-  if (data.articles && data.articles.length) {
-    html += `<div class="article-links mt-3 pt-2 border-top">`;
-    for (const a of data.articles) {
-      if (a.url) {
-        html += `<a href="${escHtml(a.url)}" target="_blank" rel="noopener">${escHtml(a.source_name)}</a>`;
-      }
-    }
-    html += `</div>`;
+  // Source chips (one per source, deduped)
+  if (data.articles?.length) {
+    const seen = new Set();
+    const chips = data.articles
+      .filter(a => a.url && !seen.has(a.source_name) && seen.add(a.source_name))
+      .map(a => `<a href="${esc(a.url)}" target="_blank" rel="noopener" class="source-chip">${esc(a.source_name)} ↗</a>`)
+      .join('');
+    if (chips) html += `<div class="source-chips">${chips}</div>`;
   }
 
   body.innerHTML = html;
 }
 
-// ── Main load ─────────────────────────────────────────────────────
-async function loadTopics() {
-  const date  = document.getElementById('filter-date').value;
-  const label = document.getElementById('filter-label').value;
+// ── Render topics ─────────────────────────────────────────────────
+function renderTopics() {
+  const filtered = allTopics.filter(matchesCategory);
+  const grid     = document.getElementById('topics-grid');
+  grid.innerHTML  = '';
+  loadedIds.clear();
 
-  show('spinner');
-  hide('no-results');
-  document.getElementById('topics-grid').innerHTML = '';
-
-  let url = '/api/topics/today';
-  const params = new URLSearchParams();
-  if (date || label) {
-    url = '/api/topics';
-    if (date)  params.set('date',  date);
-    if (label) params.set('label', label);
+  if (!filtered.length) {
+    hide('hero-section');
+    document.getElementById('stats-bar').textContent = '';
+    grid.innerHTML = '<div class="col"><p class="text-muted text-center py-5">Keine Themen für diese Auswahl.</p></div>';
+    return;
   }
-  const fullUrl = params.toString() ? `${url}?${params}` : url;
+
+  const [hero, ...rest] = filtered;
+  renderHero(hero);
+  for (const t of rest) grid.appendChild(buildCard(t));
+
+  const withFr = filtered.filter(t => t.framing_count > 0).length;
+  document.getElementById('stats-bar').textContent =
+    `${filtered.length} Themen · ${withFr} mit Framing-Analyse`;
+}
+
+// ── Load from API ─────────────────────────────────────────────────
+async function loadTopics() {
+  hide('hero-section');
+  document.getElementById('topics-grid').innerHTML = '';
+  document.getElementById('stats-bar').textContent = '';
+  show('spinner');
+
+  const url = activeDate
+    ? `/api/topics?date=${encodeURIComponent(activeDate)}`
+    : '/api/topics/today';
 
   try {
-    const topics = await apiFetch(fullUrl);
+    allTopics = await apiFetch(url);
     hide('spinner');
-
-    if (!topics.length) {
-      show('no-results');
-      document.getElementById('stats-bar').textContent = '';
-      return;
-    }
-
-    const grid = document.getElementById('topics-grid');
-    for (const t of topics) grid.appendChild(buildCard(t));
-
-    const withAnalysis = topics.filter(t => t.framing_count > 0).length;
-    document.getElementById('stats-bar').textContent =
-      `${topics.length} Themen · ${withAnalysis} mit Framing-Analyse`;
+    renderTopics();
   } catch (e) {
     hide('spinner');
     document.getElementById('topics-grid').innerHTML =
-      `<div class="col"><p class="text-danger">Fehler: ${escHtml(e.message)}</p></div>`;
+      `<div class="col"><p class="text-danger py-4">Fehler: ${esc(e.message)}</p></div>`;
   }
 }
 
+// ── Date dropdown ─────────────────────────────────────────────────
 async function loadDates() {
   try {
     const dates = await apiFetch('/api/dates');
-    const sel = document.getElementById('filter-date');
+    const sel   = document.getElementById('filter-date');
     for (const d of dates) {
       const opt = document.createElement('option');
-      opt.value = d;
-      opt.textContent = d;
+      opt.value = d; opt.textContent = d;
       sel.appendChild(opt);
     }
   } catch (_) {}
 }
 
-// ── Bootstrap ─────────────────────────────────────────────────────
-document.getElementById('filter-date').addEventListener('change', loadTopics);
-document.getElementById('filter-label').addEventListener('change', loadTopics);
+// ── Init ──────────────────────────────────────────────────────────
+document.getElementById('filter-date').addEventListener('change', e => {
+  activeDate = e.target.value;
+  loadTopics();
+});
+
+document.querySelectorAll('.pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    activeCategory = pill.dataset.cat;
+    renderTopics();
+  });
+});
 
 loadDates();
 loadTopics();
