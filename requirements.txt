@@ -11,3 +11,4 @@ numpy==2.4.4
 # Framing-Analyse (Phase 3)
 anthropic>=0.50.0
 python-dotenv>=1.0.0
+json-repair>=0.30.0

@@ -6,6 +6,8 @@ import re
 import socket
 from datetime import datetime, timezone
 
+import db
+
 
 SOURCES_FILE = "sources.md"
 DATA_DIR = "data"
@@ -85,7 +87,7 @@ def save_articles(all_articles, errors, source_count):
     }
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
-    return filename
+    return filename, payload
 
 
 def main():
@@ -109,7 +111,7 @@ def main():
             all_articles.extend(articles)
 
     print()
-    filename = save_articles(all_articles, errors, len(sources))
+    filename, payload = save_articles(all_articles, errors, len(sources))
 
     print(f"Gespeichert: {filename}")
     print(f"Artikel gesamt: {len(all_articles)}")
@@ -117,6 +119,15 @@ def main():
         print(f"Fehler bei {len(errors)} Quelle(n): {', '.join(errors.keys())}")
     else:
         print("Alle Quellen erfolgreich abgerufen.")
+
+    try:
+        conn = db.get_connection()
+        db.init_db(conn)
+        db.save_fetch_run(conn, payload, filename)
+        conn.close()
+        print("DB: gespeichert")
+    except Exception as e:
+        print(f"DB-Warnung: {e}")
 
 
 if __name__ == "__main__":

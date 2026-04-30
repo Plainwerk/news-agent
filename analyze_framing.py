@@ -8,6 +8,9 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 from dotenv import load_dotenv
 import anthropic
+from json_repair import repair_json
+
+import db
 
 load_dotenv()
 
@@ -89,7 +92,10 @@ def parse_json_response(text):
             if text.startswith("json"):
                 text = text[4:]
         text = text.strip()
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return json.loads(repair_json(text))
 
 
 def analyze_cluster(client, cluster):
@@ -289,6 +295,15 @@ def main():
             if r["framing_unterschiede"]:
                 first = r["framing_unterschiede"][0]
                 print(f"  {first['quelle']} ({first['label']}): {first['framing'][:80]}...")
+
+    try:
+        conn = db.get_connection()
+        db.init_db(conn)
+        db.save_analysis_run(conn, payload, output_file)
+        conn.close()
+        print("\nDB: gespeichert")
+    except Exception as e:
+        print(f"\nDB-Warnung: {e}")
 
 
 if __name__ == "__main__":

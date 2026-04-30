@@ -9,6 +9,8 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+import db
+
 
 DATA_DIR = "data"
 SIMILARITY_THRESHOLD = 0.20  # Erhöhen → weniger, schärfere Cluster; senken → mehr, breitere
@@ -167,6 +169,15 @@ def main():
     for c in clusters[:5]:
         print(f"  {c['id']}. \"{c['label']}\"")
         print(f"     {c['article_count']} Artikel · Spektrum: {c['spectrum_score']} ({', '.join(c['spectrum_labels'])})")
+
+    try:
+        conn = db.get_connection()
+        db.init_db(conn)
+        db.save_cluster_run(conn, payload, output_file)
+        conn.close()
+        print("\nDB: gespeichert")
+    except Exception as e:
+        print(f"\nDB-Warnung: {e}")
 
 
 if __name__ == "__main__":
