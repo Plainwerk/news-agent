@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -15,6 +16,42 @@ import db
 DATA_DIR = "data"
 SIMILARITY_THRESHOLD = 0.20  # Erhöhen → weniger, schärfere Cluster; senken → mehr, breitere
 MIN_CLUSTER_SIZE = 2
+
+# Statisches EN→DE Keyword-Mapping für internationale Quellen (kein API-Call)
+_EN_DE = {
+    "war": "Krieg", "wars": "Krieg", "ceasefire": "Waffenstillstand",
+    "peace": "Frieden", "peace talks": "Friedensgespräche",
+    "economy": "Wirtschaft", "economic": "wirtschaftlich",
+    "government": "Regierung", "governments": "Regierungen",
+    "election": "Wahl", "elections": "Wahlen", "vote": "Abstimmung",
+    "president": "Präsident", "prime minister": "Premierminister",
+    "minister": "Minister", "parliament": "Parlament",
+    "senate": "Senat", "congress": "Kongress",
+    "nato": "NATO", "russia": "Russland", "ukraine": "Ukraine",
+    "israel": "Israel", "gaza": "Gaza", "iran": "Iran",
+    "china": "China", "germany": "Deutschland", "europe": "Europa",
+    "european": "europäisch", "usa": "USA", "trump": "Trump",
+    "military": "Militär", "troops": "Truppen", "attack": "Angriff",
+    "trade": "Handel", "tariffs": "Zölle", "tariff": "Zoll",
+    "sanctions": "Sanktionen", "crisis": "Krise", "deal": "Abkommen",
+    "talks": "Gespräche", "summit": "Gipfel",
+    "death": "Tod", "deaths": "Tote", "killed": "getötet",
+    "migrants": "Migranten", "migration": "Migration",
+    "refugees": "Flüchtlinge", "asylum": "Asyl",
+    "climate": "Klima", "energy": "Energie", "oil": "Öl", "gas": "Gas",
+    "court": "Gericht", "budget": "Haushalt", "inflation": "Inflation",
+    "growth": "Wachstum", "bank": "Bank", "aid": "Hilfe",
+    "strike": "Streik", "protest": "Protest", "protests": "Proteste",
+}
+_EN_DE_PATTERN = re.compile(
+    r"\b(" + "|".join(re.escape(k) for k in sorted(_EN_DE, key=len, reverse=True)) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def translate_en_de(title: str) -> str:
+    """Replace English news keywords with German equivalents for better TF-IDF matching."""
+    return _EN_DE_PATTERN.sub(lambda m: _EN_DE[m.group(0).lower()], title)
 
 EXCLUDE_KEYWORDS = [
     "bundesliga", "champions league", "europa league", "formel 1", "formel1",
@@ -108,7 +145,7 @@ def main():
         print("Zu wenige Artikel für Clustering.")
         return
 
-    titles = [a.get("title") or "" for a in filtered]
+    titles = [translate_en_de(a.get("title") or "") for a in filtered]
     vectorizer = TfidfVectorizer(ngram_range=(1, 2), sublinear_tf=True)
     tfidf_matrix = vectorizer.fit_transform(titles)
     sim_matrix = cosine_similarity(tfidf_matrix)
