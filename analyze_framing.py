@@ -35,7 +35,8 @@ Antworte ausschließlich mit gültigem JSON in folgendem Format (kein Markdown, 
     {
       "quelle": "Name des Mediums",
       "label": "Spektrum-Label (z.B. links, mitte-rechts, öRR)",
-      "framing": "Wie dieses Medium das Ereignis rahmt: Was wird betont, welche Perspektive wird eingenommen?"
+      "framing": "Wie dieses Medium das Ereignis rahmt: Was wird betont, welche Perspektive wird eingenommen?",
+      "bias_score": 50
     }
   ],
   "wortwahl_diff": [
@@ -51,6 +52,7 @@ Antworte ausschließlich mit gültigem JSON in folgendem Format (kein Markdown, 
 Regeln:
 - framing_unterschiede: Nur Quellen aufführen, die tatsächlich eigene Artikel beigetragen haben.
 - wortwahl_diff: Nur befüllen, wenn Medien dasselbe Konzept unterschiedlich benennen. Sonst leeres Array [].
+- Gib zusätzlich für jede Quelle einen bias_score von 0 bis 100 an, basierend ausschließlich auf dem konkreten Inhalt und der Wortwahl dieses Artikels — nicht auf dem generellen Ruf der Quelle. 0 = sehr linke Rahmung, 50 = neutral/sachlich, 100 = sehr rechte Rahmung. Sei präzise und begründe dich am Text.
 - Antworte auf Deutsch."""
 
 
@@ -101,7 +103,7 @@ def parse_json_response(text):
 def analyze_cluster(client, cluster):
     response = client.messages.create(
         model=MODEL,
-        max_tokens=1500,
+        max_tokens=2000,
         system=[{
             "type": "text",
             "text": SYSTEM_PROMPT,
@@ -288,13 +290,14 @@ def main():
 
     successes = [r for r in results if "error" not in r]
     if successes:
-        print("\nTop-3-Analysen (Vorschau):")
+        print("\nTop-3-Cluster mit bias_scores:")
         for r in successes[:3]:
             print(f"\n  Thema: \"{r['label'][:70]}\"")
             print(f"  Faktenkern: {r['faktenkern'][:120]}...")
-            if r["framing_unterschiede"]:
-                first = r["framing_unterschiede"][0]
-                print(f"  {first['quelle']} ({first['label']}): {first['framing'][:80]}...")
+            for fs in r.get("framing_unterschiede", []):
+                score = fs.get("bias_score")
+                score_str = f"  bias={score:3d}" if score is not None else "  bias= ?"
+                print(f"    {fs['quelle'][:30]:<30} ({fs.get('label','?'):>12}){score_str}  {fs['framing'][:60]}...")
 
     try:
         conn = db.get_connection()

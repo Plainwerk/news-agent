@@ -138,7 +138,12 @@ def _fetch_topic_data(conn, topic_id: int) -> dict:
         "faktenkern": result["faktenkern"] if result else None,
         "error": result["error"] if result else None,
         "framing_sources": [
-            {"quelle": fs["quelle"], "spectrum_label": fs["spectrum_label"], "framing": fs["framing"]}
+            {
+                "quelle": fs["quelle"],
+                "spectrum_label": fs["spectrum_label"],
+                "framing": fs["framing"],
+                "bias_score": fs["bias_score"],
+            }
             for fs in framing_sources
         ],
         "wortwahl_diffs": wortwahl_diffs,

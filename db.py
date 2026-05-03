@@ -83,7 +83,8 @@ def init_db(conn):
             result_id      INTEGER REFERENCES framing_results(id),
             quelle         TEXT,
             spectrum_label TEXT,
-            framing        TEXT
+            framing        TEXT,
+            bias_score     INTEGER
         );
         CREATE TABLE IF NOT EXISTS wortwahl_diffs (
             id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,6 +99,11 @@ def init_db(conn):
         );
     """)
     conn.commit()
+    try:
+        conn.execute("ALTER TABLE framing_sources ADD COLUMN bias_score INTEGER")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists
 
 
 def _norm(path):
@@ -201,8 +207,8 @@ def save_analysis_run(conn, payload, output_file):
         rid = cur2.lastrowid
         for fs in r.get("framing_unterschiede", []):
             conn.execute(
-                "INSERT INTO framing_sources (result_id, quelle, spectrum_label, framing) VALUES (?,?,?,?)",
-                (rid, fs["quelle"], fs.get("label"), fs["framing"]),
+                "INSERT INTO framing_sources (result_id, quelle, spectrum_label, framing, bias_score) VALUES (?,?,?,?,?)",
+                (rid, fs["quelle"], fs.get("label"), fs["framing"], fs.get("bias_score")),
             )
         for wd in r.get("wortwahl_diff", []):
             cur3 = conn.execute(
