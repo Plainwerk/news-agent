@@ -286,7 +286,7 @@ function renderHero(topic) {
 // ── Card ──────────────────────────────────────────────────────────
 function buildCard(topic) {
   const col = document.createElement('div');
-  col.className = 'col-12 col-md-6 col-xl-4';
+  col.className = 'col-12';
 
   const icon    = getTopicIcon(topic.label);
   const cat     = getCategory(topic.label);
