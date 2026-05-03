@@ -209,6 +209,64 @@ async function openModal(id) {
   }
 }
 
+function buildSpectrumViz(sources) {
+  const scored = sources
+    .filter(s => s.bias_score != null)
+    .sort((a, b) => a.bias_score - b.bias_score);
+  if (!scored.length) return '';
+
+  // Assign stagger rows: 0 = above bar, 1 = below bar
+  const rows = [0];
+  for (let i = 1; i < scored.length; i++) {
+    rows.push(scored[i].bias_score - scored[i - 1].bias_score < 8
+      ? (rows[i - 1] === 0 ? 1 : 0)
+      : 0);
+  }
+
+  const makeCard = (s, row) => {
+    // Remap 0-100 → 13-87% so edge cards don't overflow modal width
+    const pct = (13 + (s.bias_score / 100) * 74).toFixed(1);
+    const preview = (s.framing || '').slice(0, 60);
+    const ellipsis = (s.framing || '').length > 60 ? '…' : '';
+    return `<div class="bias-card bias-card-r${row}" style="left:${pct}%" title="${esc(s.framing)}">
+      ${specBadge(s.spectrum_label)}
+      <div class="bias-card-name">${esc(s.quelle)}</div>
+      <div class="bias-card-framing">${esc(preview)}${ellipsis}</div>
+    </div>`;
+  };
+
+  const cards = scored.map((s, i) => makeCard(s, rows[i])).join('');
+
+  return `<div class="bias-viz-wrap">
+    ${cards}
+    <div class="bias-gradient"></div>
+    <div class="bias-axis-labels">
+      <span>← Links</span>
+      <span>Rechts →</span>
+    </div>
+  </div>`;
+}
+
+function buildControversyLine(sources) {
+  const scores = sources.filter(s => s.bias_score != null).map(s => s.bias_score);
+  if (scores.length < 2) return '';
+  const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const std  = Math.sqrt(scores.reduce((a, b) => a + (b - mean) ** 2, 0) / scores.length);
+  const [label, icon] = std > 20 ? ['hoch', '🔴'] : std > 10 ? ['mittel', '🟡'] : ['Konsens', '🟢'];
+  return `<div class="controversy-line">Streuung: ${label} ${icon}<span class="sigma"> σ=${std.toFixed(1)}</span></div>`;
+}
+
+function buildMobileFramingList(sources) {
+  const rows = sources.map(fs => `
+    <div class="framing-row">
+      <div class="framing-cell framing-source">
+        ${specBadge(fs.spectrum_label)}<span>${esc(fs.quelle)}</span>
+      </div>
+      <div class="framing-cell">${esc(fs.framing)}</div>
+    </div>`).join('');
+  return `<div class="bias-mobile-list"><div class="framing-table">${rows}</div></div>`;
+}
+
 function renderModalBody(data) {
   const body = document.getElementById('modal-body');
   if (!body) return;
@@ -217,17 +275,25 @@ function renderModalBody(data) {
     <div class="faktenkern-box">${esc(data.faktenkern || '(keine Analyse verfügbar)')}</div>`;
 
   if (data.framing_sources?.length) {
-    html += `<div class="detail-section-label">Framing nach Quelle</div>
-      <div class="framing-table">`;
-    for (const fs of data.framing_sources) {
-      html += `<div class="framing-row">
-        <div class="framing-cell framing-source">
-          ${specBadge(fs.spectrum_label)}<span>${esc(fs.quelle)}</span>
-        </div>
-        <div class="framing-cell">${esc(fs.framing)}</div>
-      </div>`;
+    const viz = buildSpectrumViz(data.framing_sources);
+    if (viz) {
+      html += `<div class="detail-section-label">Framing nach Spektrum</div>`;
+      html += viz;
+      html += buildControversyLine(data.framing_sources);
+      html += buildMobileFramingList(data.framing_sources);
+    } else {
+      html += `<div class="detail-section-label">Framing nach Quelle</div>
+        <div class="framing-table">`;
+      for (const fs of data.framing_sources) {
+        html += `<div class="framing-row">
+          <div class="framing-cell framing-source">
+            ${specBadge(fs.spectrum_label)}<span>${esc(fs.quelle)}</span>
+          </div>
+          <div class="framing-cell">${esc(fs.framing)}</div>
+        </div>`;
+      }
+      html += `</div>`;
     }
-    html += `</div>`;
   }
 
   if (data.wortwahl_diffs?.length) {
