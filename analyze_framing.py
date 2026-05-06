@@ -12,7 +12,7 @@ from json_repair import repair_json
 
 import db
 
-load_dotenv()
+load_dotenv(override=True)
 
 DATA_DIR = "data"
 MODEL = "claude-sonnet-4-6"
@@ -258,7 +258,7 @@ def main():
                 "error": str(e),
             })
 
-    timestamp = os.path.basename(input_file).replace("clusters_", "").replace(".json", "")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     output_file = os.path.join(DATA_DIR, f"framing_{timestamp}.json")
 
     payload = {
