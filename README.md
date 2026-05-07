@@ -144,6 +144,8 @@ news-agent/
 
 ---
 
-## Lizenz
+## Urheberrecht
 
-MIT — frei nutzbar, frei erweiterbar.
+© 2025 Steffen Heinz — Alle Rechte vorbehalten.
+
+Der Code darf eingesehen, aber nicht ohne ausdrückliche Genehmigung kopiert, verwendet oder weiterverbreitet werden.
