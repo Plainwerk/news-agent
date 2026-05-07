@@ -423,14 +423,9 @@ function buildCard(topic) {
   const col = document.createElement('div');
   col.className = 'col-12';
 
-  const icon    = getTopicIcon(topic.label);
-  const cat     = getCategory(topic.label);
-  const catCls  = cat ? `cat-${cat.toLowerCase()}` : '';
-
   col.innerHTML = `
-    <div class="topic-card h-100 ${catCls}" onclick="openModal(${topic.id})">
+    <div class="topic-card h-100" onclick="openModal(${topic.id})">
       <div class="card-inner">
-        ${icon ? `<div class="card-icon">${icon}</div>` : ''}
         <div class="card-title-text">${esc(topic.label)}</div>
         ${spectrumBar(topic.spectrum_labels, 8, false, topic.sources)}
         <div class="card-meta">
