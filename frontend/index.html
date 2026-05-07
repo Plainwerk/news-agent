@@ -122,6 +122,27 @@
       box-shadow: 0 0 0 1.5px rgba(0,0,0,.2), 0 1px 4px rgba(0,0,0,.25);
       pointer-events: none;
     }
+    .sgdot-link {
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 2;
+      text-decoration: none;
+    }
+    .sgdot-bubble {
+      position: relative;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 0 0 1.5px rgba(0,0,0,.15), 0 1px 4px rgba(0,0,0,.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      transition: transform .15s;
+    }
+    .sgdot-link:hover .sgdot-bubble { transform: scale(1.3); }
+    .sgdot-favicon { width: 65%; height: 65%; object-fit: contain; }
+    .sgdot-fallback { font-size: 0.4rem; font-weight: 700; color: #555; }
 
     .spectrum-axis { display: flex; justify-content: space-between; margin-top: 5px; }
     .spectrum-axis-label { font-size: 0.62rem; font-weight: 500; color: var(--muted); }
@@ -388,16 +409,19 @@
       color: var(--muted);
       pointer-events: none;
     }
+    .bias-viz-wrap { height: 80px; }
+
     .bias-bubble-link {
       position: absolute;
-      transform: translateX(-50%);
+      top: 50%;
+      transform: translate(-50%, -50%);
       z-index: 2;
       display: block;
       text-decoration: none;
     }
     .bias-bubble {
-      width: 32px;
-      height: 32px;
+      width: 36px;
+      height: 36px;
       border-radius: 50%;
       border: 2.5px solid #fff;
       box-shadow: 0 1px 6px rgba(0,0,0,.2);
@@ -408,24 +432,16 @@
       transition: transform .15s, box-shadow .15s;
       cursor: pointer;
       background: #fff;
-      position: absolute;
-      transform: translateX(-50%);
-      z-index: 1;
     }
-    .bias-bubble-link .bias-bubble { position: relative; transform: none; }
-    .bias-bubble:hover, .bias-bubble-link:hover .bias-bubble {
+    .bias-bubble-link:hover .bias-bubble {
       transform: scale(1.25);
       box-shadow: 0 4px 14px rgba(0,0,0,.25);
-      z-index: 10;
     }
-    .bias-bubble-r0 { bottom: calc(50% + 8px); }
-    .bias-bubble-r1 { top:    calc(50% + 8px); }
-    .bias-favicon { width: 20px; height: 20px; object-fit: contain; }
+    .bias-favicon { width: 22px; height: 22px; object-fit: contain; }
     .bias-fallback {
       font-size: 0.55rem;
       font-weight: 700;
-      color: #fff;
-      text-shadow: 0 1px 2px rgba(0,0,0,.3);
+      color: #555;
     }
     .controversy-line {
       font-size: 0.76rem;
@@ -467,6 +483,14 @@
       font-size: 0.83rem;
       font-weight: 600;
       color: var(--headline);
+    }
+
+    .framing-wortwahl {
+      font-style: italic;
+      font-size: 0.75rem;
+      color: var(--muted);
+      font-weight: 400;
+      margin-left: 6px;
     }
 
     .framing-toggle-icon {

@@ -164,8 +164,10 @@ function truncate(text, max = 220) {
   return cut > 0 ? text.slice(0, cut + 1) : text.slice(0, max) + '…';
 }
 
+const API_BASE = window.location.port === '8766' ? 'http://127.0.0.1:8766' : '';
+
 async function apiFetch(path) {
-  const r = await fetch(path);
+  const r = await fetch(API_BASE + path);
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
@@ -174,27 +176,46 @@ function show(id) { const el = document.getElementById(id); if (el) el.style.dis
 function hide(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
 
 // ── Spectrum gradient bar ─────────────────────────────────────────
-function spectrumBar(labels, height, showAxis) {
+function spectrumBar(labels, height, showAxis, sources) {
   const present = new Set(labels);
-  const dotSz   = height + 2;
+  const dotSz   = Math.max(height + 14, 22);
 
-  const dots = Object.entries(SPECTRUM_POSITIONS)
-    .filter(([lbl]) => present.has(lbl))
-    .map(([lbl, pct]) =>
-      `<div class="sgdot" style="left:${pct}%;width:${dotSz}px;height:${dotSz}px" title="${esc(lbl)}"></div>`
-    ).join('');
-
-  const extras = ['öRR', 'Agentur'].filter(l => present.has(l));
-  const extraHtml = extras.length
-    ? `<div class="spec-extras">${extras.map(l =>
-        `<div class="spec-dot spec-dot-${l === 'öRR' ? 'oerr' : 'agentur'}" title="${esc(l)}"></div>`
-      ).join('')}</div>`
-    : '';
+  // sources = [{name, label, bias_score}] wenn vorhanden, sonst Spektrum-Punkte
+  // Sort extreme sources first so center sources are last in DOM → appear on top naturally
+  const dotsHtml = (sources && sources.length)
+    ? (() => {
+        const sorted = [...sources]
+          .filter(s => s.bias_score != null || SPECTRUM_POSITIONS[s.label] != null)
+          .sort((a, b) => {
+            const bA = a.bias_score ?? SPECTRUM_POSITIONS[a.label] ?? 50;
+            const bB = b.bias_score ?? SPECTRUM_POSITIONS[b.label] ?? 50;
+            return Math.abs(bB - 50) - Math.abs(bA - 50); // extreme first → center last (on top)
+          });
+        return sorted.map((s) => {
+          const pct = s.bias_score != null ? (13 + (s.bias_score / 100) * 74).toFixed(1) : (SPECTRUM_POSITIONS[s.label] ?? 50);
+          const favicon = sourceFavicon(s.name);
+          const url = sourceUrl(s.name);
+          const img = favicon
+            ? `<img src="${esc(favicon)}" alt="${esc(s.name)}" class="sgdot-favicon" onerror="this.style.display='none'">`
+            : `<span class="sgdot-fallback">${esc(s.name.slice(0,2))}</span>`;
+          const bubble = `<div class="sgdot-bubble" style="width:${dotSz+6}px;height:${dotSz+6}px" title="${esc(s.name)}">${img}</div>`;
+          return url
+            ? `<a href="${esc(url)}" target="_blank" rel="noopener" class="sgdot-link" style="left:${pct}%"
+                onmouseenter="this.style.zIndex='1000';this.parentElement.style.zIndex='100'"
+                onmouseleave="this.style.zIndex='';this.parentElement.style.zIndex=''">${bubble}</a>`
+            : bubble;
+        }).join('');
+      })()
+    : Object.entries(SPECTRUM_POSITIONS)
+        .filter(([lbl]) => present.has(lbl))
+        .map(([lbl, pct]) =>
+          `<div class="sgdot" style="left:${pct}%;width:${dotSz}px;height:${dotSz}px" title="${esc(lbl)}"></div>`
+        ).join('');
+  const dots = dotsHtml;
 
   const axis = showAxis
     ? `<div class="spectrum-axis">
          <span class="spectrum-axis-label">← Links</span>
-         ${extraHtml}
          <span class="spectrum-axis-label">Rechts →</span>
        </div>`
     : '';
@@ -243,40 +264,32 @@ async function openModal(id) {
 }
 
 function buildSpectrumViz(sources) {
+  // Sort extreme sources first → center sources last in DOM → appear on top naturally
   const scored = sources
     .filter(s => s.bias_score != null)
-    .sort((a, b) => a.bias_score - b.bias_score);
+    .sort((a, b) => Math.abs(b.bias_score - 50) - Math.abs(a.bias_score - 50));
   if (!scored.length) return '';
 
-  // Assign stagger rows: 0 = above bar, 1 = below bar
-  const rows = [0];
-  for (let i = 1; i < scored.length; i++) {
-    rows.push(scored[i].bias_score - scored[i - 1].bias_score < 8
-      ? (rows[i - 1] === 0 ? 1 : 0)
-      : 0);
-  }
-
-  const makeCard = (s, row) => {
+  const makeBubble = (s) => {
     const pct = (13 + (s.bias_score / 100) * 74).toFixed(1);
     const favicon = sourceFavicon(s.quelle);
     const url = sourceUrl(s.quelle);
     const inner = favicon
       ? `<img src="${esc(favicon)}" alt="${esc(s.quelle)}" class="bias-favicon" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><span class="bias-fallback" style="display:none">${esc(s.quelle.slice(0,3))}</span>`
       : `<span class="bias-fallback">${esc(s.quelle.slice(0,3))}</span>`;
-    const bubble = `<div class="bias-bubble bias-bubble-r${row} ${SPEC_CSS[s.spectrum_label] || 'spec-agentur'}" style="left:${pct}%" title="${esc(s.quelle + ': ' + s.framing)}">${inner}</div>`;
+    const bubble = `<div class="bias-bubble" title="${esc(s.quelle + ': ' + s.framing)}">${inner}</div>`;
     return url
-      ? `<a href="${esc(url)}" target="_blank" rel="noopener" class="bias-bubble-link" style="left:${pct}%;top:${row === 0 ? 'auto' : 'calc(50% + 10px)'};bottom:${row === 0 ? 'calc(50% + 10px)' : 'auto'}">${bubble}</a>`
-      : bubble;
+      ? `<a href="${esc(url)}" target="_blank" rel="noopener" class="bias-bubble-link" style="left:${pct}%"
+          onmouseenter="this.style.zIndex='1000';this.parentElement.style.zIndex='100'"
+          onmouseleave="this.style.zIndex='';this.parentElement.style.zIndex=''">${bubble}</a>`
+      : `<div class="bias-bubble-link" style="left:${pct}%">${bubble}</div>`;
   };
 
-  const cards = scored.map((s, i) => makeCard(s, rows[i])).join('');
+  const cards = scored.map(s => makeBubble(s)).join('');
 
   return `<div class="bias-viz-wrap">
     ${cards}
     <div class="bias-gradient"></div>
-    <div class="bias-center-marker" title="Mitte / neutral">
-      <img src="assets/prisma-logo.svg" alt="Mitte">
-    </div>
     <div class="bias-axis-labels">
       <span>← Links</span>
       <span>Rechts →</span>
@@ -319,15 +332,28 @@ function renderModalBody(data) {
       html += buildControversyLine(data.framing_sources);
     }
 
+    // Wortwahl-Map aufbauen: {quelle → ["Begriff1", "Begriff2"]}
+    const wortwahl = {};
+    for (const wd of (data.wortwahl_diffs || [])) {
+      for (const v of (wd.varianten || [])) {
+        if (!wortwahl[v.quelle]) wortwahl[v.quelle] = [];
+        wortwahl[v.quelle].push(v.bezeichnung);
+      }
+    }
+
     // Framing-Tabelle — jede Quelle einzeln auf/zuklappbar
     html += `<div class="detail-section-label mt-3">Einschätzungen der Quellen</div>
       <div class="framing-table">`;
     for (const fs of data.framing_sources) {
+      const terms = wortwahl[fs.quelle] || [];
+      const termsHtml = terms.length
+        ? `<span class="framing-wortwahl">${terms.map(t => `„${esc(t)}"`).join(' · ')}</span>`
+        : '';
       html += `
         <div class="framing-row-wrap">
           <div class="framing-row-header open" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('hidden')">
             <div class="framing-source-label">
-              ${specBadge(fs.spectrum_label)}<span>${esc(fs.quelle)}</span>
+              ${specBadge(fs.spectrum_label)}<span>${esc(fs.quelle)}</span>${termsHtml}
             </div>
             <span class="framing-toggle-icon">▼</span>
           </div>
@@ -374,7 +400,7 @@ function renderHero(topic) {
     <div class="hero-card">
       <div class="hero-eyebrow">Top-Thema</div>
       <h1 class="hero-title">${esc(topic.label)}</h1>
-      ${spectrumBar(topic.spectrum_labels, 16, true)}
+      ${spectrumBar(topic.spectrum_labels, 16, true, topic.sources)}
       ${topic.faktenkern
         ? `<p class="hero-faktenkern">${esc(truncate(topic.faktenkern, 240))}</p>`
         : ''}
@@ -406,7 +432,7 @@ function buildCard(topic) {
       <div class="card-inner">
         ${icon ? `<div class="card-icon">${icon}</div>` : ''}
         <div class="card-title-text">${esc(topic.label)}</div>
-        ${spectrumBar(topic.spectrum_labels, 8, false)}
+        ${spectrumBar(topic.spectrum_labels, 8, false, topic.sources)}
         <div class="card-meta">
           ${topic.article_count} Artikel
           ${topic.framing_count > 0

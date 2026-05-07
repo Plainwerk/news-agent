@@ -29,6 +29,23 @@ def _parse_labels(raw):
         return []
 
 
+def _parse_sources(raw):
+    if not raw:
+        return []
+    seen = set()
+    sources = []
+    for entry in raw.split(','):
+        parts = entry.split('|')
+        if len(parts) < 2:
+            continue
+        name, label = parts[0].strip(), parts[1].strip()
+        bias = int(parts[2]) if len(parts) > 2 and parts[2].strip().lstrip('-').isdigit() else None
+        if name and name not in seen:
+            seen.add(name)
+            sources.append({"name": name, "label": label, "bias_score": bias})
+    return sources
+
+
 def _topic_dict(row):
     return {
         "id": row["id"],
@@ -39,6 +56,7 @@ def _topic_dict(row):
         "relevance_score": row["relevance_score"],
         "faktenkern": row["faktenkern"],
         "framing_count": row["framing_count"],
+        "sources": _parse_sources(row["sources_raw"]),
     }
 
 
@@ -46,7 +64,8 @@ _TOPICS_SELECT = """
     SELECT c.id, c.label, c.spectrum_score, c.spectrum_labels,
            c.article_count, c.relevance_score,
            fr.faktenkern,
-           COUNT(fs.id) AS framing_count
+           COUNT(fs.id) AS framing_count,
+           GROUP_CONCAT(fs.quelle || '|' || COALESCE(fs.spectrum_label,'') || '|' || COALESCE(CAST(fs.bias_score AS TEXT),'')) AS sources_raw
     FROM clusters c
     JOIN cluster_runs cr ON c.run_id = cr.id
     LEFT JOIN framing_results fr ON fr.cluster_id = c.id AND fr.error IS NULL
