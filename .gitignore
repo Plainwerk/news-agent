@@ -10,8 +10,11 @@ venv/
 env/
 .venv/
 
-# Daten-Ordner (wird vom Fetch-Skript befüllt, gehört nicht ins Repo)
-data/
+# Generierte JSON-Daten (lokal, nicht ins Repo)
+data/*.json
+
+# Datenbank wird mit deployed (Demo-Daten)
+# data/news_agent.db  → wird eingecheckt
 
 # API-Keys & Secrets (kommt in Phase 3)
 .env
