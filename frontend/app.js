@@ -1,5 +1,40 @@
 'use strict';
 
+// ── Source → domain mapping ───────────────────────────────────────
+const SOURCE_DOMAINS = {
+  'Tagesschau':          'tagesschau.de',
+  'ZDF heute':           'zdf.de',
+  'Der Spiegel':         'spiegel.de',
+  'Zeit Online':         'zeit.de',
+  'Süddeutsche Zeitung': 'sueddeutsche.de',
+  'FAZ':                 'faz.net',
+  'NZZ':                 'nzz.ch',
+  'Handelsblatt':        'handelsblatt.com',
+  'Die Welt':            'welt.de',
+  'Cicero':              'cicero.de',
+  'taz':                 'taz.de',
+  'Neues Deutschland':   'nd-aktuell.de',
+  'Junge Freiheit':      'jungefreiheit.de',
+  'Tichys Einblick':     'tichyseinblick.de',
+  'n-tv (dpa)':          'n-tv.de',
+  'Der Standard':        'derstandard.at',
+  'Watson.ch':           'watson.ch',
+  'BBC News (Europa)':   'bbc.co.uk',
+  'Politico Europe':     'politico.eu',
+  'The Guardian':        'theguardian.com',
+};
+
+function sourceFavicon(name) {
+  const domain = SOURCE_DOMAINS[name];
+  if (!domain) return null;
+  return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+}
+
+function sourceUrl(name) {
+  const domain = SOURCE_DOMAINS[name];
+  return domain ? `https://${domain}` : null;
+}
+
 // ── Spectrum gradient bar ─────────────────────────────────────────
 const SPECTRUM_POSITIONS = {
   'links':        0,
@@ -222,15 +257,16 @@ function buildSpectrumViz(sources) {
   }
 
   const makeCard = (s, row) => {
-    // Remap 0-100 → 13-87% so edge cards don't overflow modal width
     const pct = (13 + (s.bias_score / 100) * 74).toFixed(1);
-    const preview = (s.framing || '').slice(0, 60);
-    const ellipsis = (s.framing || '').length > 60 ? '…' : '';
-    return `<div class="bias-card bias-card-r${row}" style="left:${pct}%" title="${esc(s.framing)}">
-      ${specBadge(s.spectrum_label)}
-      <div class="bias-card-name">${esc(s.quelle)}</div>
-      <div class="bias-card-framing">${esc(preview)}${ellipsis}</div>
-    </div>`;
+    const favicon = sourceFavicon(s.quelle);
+    const url = sourceUrl(s.quelle);
+    const inner = favicon
+      ? `<img src="${esc(favicon)}" alt="${esc(s.quelle)}" class="bias-favicon" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><span class="bias-fallback" style="display:none">${esc(s.quelle.slice(0,3))}</span>`
+      : `<span class="bias-fallback">${esc(s.quelle.slice(0,3))}</span>`;
+    const bubble = `<div class="bias-bubble bias-bubble-r${row} ${SPEC_CSS[s.spectrum_label] || 'spec-agentur'}" style="left:${pct}%" title="${esc(s.quelle + ': ' + s.framing)}">${inner}</div>`;
+    return url
+      ? `<a href="${esc(url)}" target="_blank" rel="noopener" class="bias-bubble-link" style="left:${pct}%;top:${row === 0 ? 'auto' : 'calc(50% + 10px)'};bottom:${row === 0 ? 'calc(50% + 10px)' : 'auto'}">${bubble}</a>`
+      : bubble;
   };
 
   const cards = scored.map((s, i) => makeCard(s, rows[i])).join('');
@@ -238,6 +274,9 @@ function buildSpectrumViz(sources) {
   return `<div class="bias-viz-wrap">
     ${cards}
     <div class="bias-gradient"></div>
+    <div class="bias-center-marker" title="Mitte / neutral">
+      <img src="assets/prisma-logo.svg" alt="Mitte">
+    </div>
     <div class="bias-axis-labels">
       <span>← Links</span>
       <span>Rechts →</span>
@@ -280,24 +319,24 @@ function renderModalBody(data) {
       html += buildControversyLine(data.framing_sources);
     }
 
-    // Ausklappbare Framing-Tabelle (immer anzeigen)
-    let tableRows = '';
+    // Framing-Tabelle — jede Quelle einzeln auf/zuklappbar
+    html += `<div class="detail-section-label mt-3">Einschätzungen der Quellen</div>
+      <div class="framing-table">`;
     for (const fs of data.framing_sources) {
-      tableRows += `<div class="framing-row">
-        <div class="framing-cell framing-source">
-          ${specBadge(fs.spectrum_label)}<span>${esc(fs.quelle)}</span>
-        </div>
-        <div class="framing-cell">${esc(fs.framing)}</div>
-      </div>`;
+      html += `
+        <div class="framing-row-wrap">
+          <div class="framing-row-header open" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('hidden')">
+            <div class="framing-source-label">
+              ${specBadge(fs.spectrum_label)}<span>${esc(fs.quelle)}</span>
+            </div>
+            <span class="framing-toggle-icon">▼</span>
+          </div>
+          <div class="framing-row-body">
+            ${esc(fs.framing)}
+          </div>
+        </div>`;
     }
-    html += `
-      <div class="framing-collapse-header" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('show')">
-        <span class="detail-section-label mb-0">Einschätzungen der Quellen</span>
-        <span class="framing-toggle-icon">▼</span>
-      </div>
-      <div class="framing-collapse-body">
-        <div class="framing-table">${tableRows}</div>
-      </div>`;
+    html += `</div>`;
   }
 
   if (data.wortwahl_diffs?.length) {
