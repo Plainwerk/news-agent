@@ -278,20 +278,26 @@ function renderModalBody(data) {
       html += `<div class="detail-section-label">Framing nach Spektrum</div>`;
       html += viz;
       html += buildControversyLine(data.framing_sources);
-      html += buildMobileFramingList(data.framing_sources);
-    } else {
-      html += `<div class="detail-section-label">Framing nach Quelle</div>
-        <div class="framing-table">`;
-      for (const fs of data.framing_sources) {
-        html += `<div class="framing-row">
-          <div class="framing-cell framing-source">
-            ${specBadge(fs.spectrum_label)}<span>${esc(fs.quelle)}</span>
-          </div>
-          <div class="framing-cell">${esc(fs.framing)}</div>
-        </div>`;
-      }
-      html += `</div>`;
     }
+
+    // Ausklappbare Framing-Tabelle (immer anzeigen)
+    let tableRows = '';
+    for (const fs of data.framing_sources) {
+      tableRows += `<div class="framing-row">
+        <div class="framing-cell framing-source">
+          ${specBadge(fs.spectrum_label)}<span>${esc(fs.quelle)}</span>
+        </div>
+        <div class="framing-cell">${esc(fs.framing)}</div>
+      </div>`;
+    }
+    html += `
+      <div class="framing-collapse-header" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('show')">
+        <span class="detail-section-label mb-0">Einschätzungen der Quellen</span>
+        <span class="framing-toggle-icon">▼</span>
+      </div>
+      <div class="framing-collapse-body">
+        <div class="framing-table">${tableRows}</div>
+      </div>`;
   }
 
   if (data.wortwahl_diffs?.length) {
