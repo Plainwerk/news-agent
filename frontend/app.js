@@ -189,9 +189,7 @@ async function openModal(id) {
   document.getElementById('modal-meta').textContent   = meta
     ? `${meta.article_count} Artikel · ${meta.spectrum_score} Spektrum-Ebenen`
     : '';
-  document.getElementById('modal-spectrum').innerHTML = meta
-    ? spectrumBar(meta.spectrum_labels, 12, true)
-    : '';
+  document.getElementById('modal-spectrum').innerHTML = '';
   document.getElementById('modal-body').innerHTML =
     '<div class="spinner-mini">Lade Framing-Analyse…</div>';
 
