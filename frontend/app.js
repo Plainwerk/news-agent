@@ -35,6 +35,13 @@ function sourceUrl(name) {
   return domain ? `https://${domain}` : null;
 }
 
+// ── Bias bar: fixed scale 20–80 maps to full bar width ───────────
+const BIAS_MIN = 20;
+const BIAS_MAX = 80;
+function biasToPos(score) {
+  return (6 + (Math.max(BIAS_MIN, Math.min(BIAS_MAX, score)) - BIAS_MIN) / (BIAS_MAX - BIAS_MIN) * 88).toFixed(1);
+}
+
 // ── Spectrum gradient bar ─────────────────────────────────────────
 const SPECTRUM_POSITIONS = {
   'links':        0,
@@ -191,14 +198,9 @@ function spectrumBar(labels, height, showAxis, sources) {
             const bB = b.bias_score ?? SPECTRUM_POSITIONS[b.label] ?? 50;
             return Math.abs(bB - 50) - Math.abs(bA - 50); // extreme first → center last (on top)
           });
-        // Normalize: stretch scores so leftmost → left edge, rightmost → right edge
-        const rawScores = sorted.map(s => s.bias_score ?? SPECTRUM_POSITIONS[s.label] ?? 50);
-        const minB = Math.min(...rawScores);
-        const maxB = Math.max(...rawScores);
-        const spanB = maxB - minB || 1;
         return sorted.map((s) => {
           const raw = s.bias_score ?? SPECTRUM_POSITIONS[s.label] ?? 50;
-          const pct = (6 + ((raw - minB) / spanB) * 88).toFixed(1);
+          const pct = biasToPos(raw);
           const favicon = sourceFavicon(s.name);
           const url = sourceUrl(s.name);
           const img = favicon
@@ -276,13 +278,8 @@ function buildSpectrumViz(sources) {
     .sort((a, b) => Math.abs(b.bias_score - 50) - Math.abs(a.bias_score - 50));
   if (!scored.length) return '';
 
-  // Normalize: stretch scores so leftmost → left edge, rightmost → right edge
-  const minB = Math.min(...scored.map(s => s.bias_score));
-  const maxB = Math.max(...scored.map(s => s.bias_score));
-  const spanB = maxB - minB || 1;
-
   const makeBubble = (s) => {
-    const pct = (6 + ((s.bias_score - minB) / spanB) * 88).toFixed(1);
+    const pct = biasToPos(s.bias_score);
     const favicon = sourceFavicon(s.quelle);
     const url = sourceUrl(s.quelle);
     const inner = favicon
