@@ -1,0 +1,58 @@
+name: Prisma – Pipeline aktualisieren
+
+on:
+  workflow_dispatch:   # Manuell antriggern – aus GitHub App oder Website
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Abhängigkeiten installieren
+        run: pip install -r requirements.txt
+
+      - name: 1 / 3 – RSS-Feeds abrufen
+        run: python fetch_feeds.py
+
+      - name: 2 / 3 – Themen clustern
+        run: python cluster_topics.py
+
+      - name: 3 / 3 – Framing analysieren
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python analyze_framing.py
+
+      - name: Datenbank committen und pushen
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/news_agent.db
+          git diff --staged --quiet || git commit -m "Daten: Tagesupdate $(date '+%Y-%m-%d %H:%M UTC')"
+          git push
+
+      - name: Handy-Benachrichtigung – Erfolg
+        if: success()
+        run: |
+          curl -s -X POST \
+            -H "Title: Prisma ✅ aktualisiert" \
+            -H "Tags: newspaper" \
+            -d "Neue Themen sind live – viel Spaß beim Lesen!" \
+            https://ntfy.sh/prisma-update-steffen
+
+      - name: Handy-Benachrichtigung – Fehler
+        if: failure()
+        run: |
+          curl -s -X POST \
+            -H "Title: Prisma ❌ Fehler aufgetreten" \
+            -H "Priority: high" \
+            -H "Tags: warning" \
+            -d "Pipeline fehlgeschlagen. Bitte GitHub Actions-Log prüfen." \
+            https://ntfy.sh/prisma-update-steffen
