@@ -218,9 +218,24 @@ async function openModal(id) {
   }
 }
 
+function cleanQuelle(name) {
+  // Entfernt parenthetische Qualifier: "ZDF heute (Kehrtwende)" → "ZDF heute"
+  return (name || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
+}
+
 function buildSpectrumViz(sources) {
+  // De-duplizieren nach bereinigtem Quellnamen — Eintrag mit bias_score bevorzugt
+  const seen = new Map();
+  for (const s of sources) {
+    const clean = cleanQuelle(s.quelle);
+    const existing = seen.get(clean);
+    if (!existing || (existing.bias_score == null && s.bias_score != null)) {
+      seen.set(clean, { ...s, quelle: clean });
+    }
+  }
+
   // Alle Quellen zeigen — bias_score bevorzugt, SPECTRUM_POSITIONS als Fallback
-  const scored = sources
+  const scored = [...seen.values()]
     .filter(s => s.bias_score != null || SPECTRUM_POSITIONS[s.spectrum_label] != null)
     .sort((a, b) => {
       const bA = a.bias_score ?? (SPECTRUM_POSITIONS[a.spectrum_label] ?? 50);
@@ -290,10 +305,17 @@ function renderModalBody(data) {
       }
     }
 
-    // Framing-Tabelle — jede Quelle einzeln auf/zuklappbar
+    // Framing-Tabelle — de-dupliziert, jede Quelle einzeln auf/zuklappbar
+    const seenSources = new Map();
+    for (const fs of data.framing_sources) {
+      const clean = cleanQuelle(fs.quelle);
+      if (!seenSources.has(clean) || (seenSources.get(clean).bias_score == null && fs.bias_score != null)) {
+        seenSources.set(clean, { ...fs, quelle: clean });
+      }
+    }
     html += `<div class="detail-section-label mt-3">Einschätzungen der Quellen</div>
       <div class="framing-table">`;
-    for (const fs of data.framing_sources) {
+    for (const fs of seenSources.values()) {
       const terms = wortwahl[fs.quelle] || [];
       const termsHtml = terms.length
         ? `<span class="framing-wortwahl">${terms.map(t => `„${esc(t)}"`).join(' · ')}</span>`
