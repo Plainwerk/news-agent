@@ -206,17 +206,23 @@ def save_analysis_run(conn, payload, output_file):
         )
         rid = cur2.lastrowid
         for fs in r.get("framing_unterschiede", []):
+            if not fs.get("quelle") or not fs.get("framing"):
+                continue  # skip incomplete entries (e.g. from truncated JSON)
             conn.execute(
                 "INSERT INTO framing_sources (result_id, quelle, spectrum_label, framing, bias_score) VALUES (?,?,?,?,?)",
                 (rid, fs["quelle"], fs.get("label"), fs["framing"], fs.get("bias_score")),
             )
         for wd in r.get("wortwahl_diff", []):
+            if not wd.get("konzept"):
+                continue
             cur3 = conn.execute(
                 "INSERT INTO wortwahl_diffs (result_id, konzept) VALUES (?,?)",
                 (rid, wd["konzept"]),
             )
             did = cur3.lastrowid
             for v in wd.get("varianten", []):
+                if not v.get("quelle") or not v.get("bezeichnung"):
+                    continue  # skip incomplete entries
                 conn.execute(
                     "INSERT INTO wortwahl_vars (diff_id, quelle, bezeichnung) VALUES (?,?,?)",
                     (did, v["quelle"], v["bezeichnung"]),

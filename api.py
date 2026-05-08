@@ -68,7 +68,10 @@ _TOPICS_SELECT = """
            GROUP_CONCAT(fs.quelle || '|' || COALESCE(fs.spectrum_label,'') || '|' || COALESCE(CAST(fs.bias_score AS TEXT),'')) AS sources_raw
     FROM clusters c
     JOIN cluster_runs cr ON c.run_id = cr.id
-    LEFT JOIN framing_results fr ON fr.cluster_id = c.id AND fr.error IS NULL
+    LEFT JOIN framing_results fr ON fr.id = (
+        SELECT MAX(id) FROM framing_results
+        WHERE cluster_id = c.id AND error IS NULL
+    )
     LEFT JOIN framing_sources fs ON fs.result_id = fr.id
 """
 

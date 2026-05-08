@@ -24,36 +24,106 @@ COST_OUTPUT = 15.00 / 1_000_000
 COST_CACHE_WRITE = 3.75 / 1_000_000
 COST_CACHE_READ = 0.30 / 1_000_000
 
-SYSTEM_PROMPT = """Du bist ein Medienanalyse-Experte. Du analysierst, wie verschiedene deutsche Nachrichtenmedien über dasselbe Ereignis berichten.
+SYSTEM_PROMPT = """Du bist ein Werkzeug für Medienanalyse. Deine Aufgabe ist Beobachten, nicht Bewerten. Du beschreibst was sprachlich passiert — du interpretierst nicht, was es bedeutet.
 
-Deine Aufgabe: Für einen gegebenen Nachrichten-Cluster erstellst du eine strukturierte Framing-Analyse basierend ausschließlich auf den gegebenen Artikel-Titeln.
+Du bekommst Artikel-Titel mehrerer deutscher Medien zum selben Ereignis. Wichtig: Du analysierst ausschließlich diese Titel, nicht den allgemeinen Ruf der Quelle.
+
+EINGABEFORMAT — wichtig zu verstehen:
+Jede Artikelzeile beginnt mit "[Medienname / Spektrum-Label]" gefolgt vom Titel.
+Beispiel: "[Tagesschau / öRR] Bilanz nach einem Jahr Schwarz-Rot"
+→ Medienname = "Tagesschau", Spektrum-Label = "öRR", Titel = "Bilanz nach einem Jahr Schwarz-Rot"
+
+In deiner JSON-Antwort sind quelle und label IMMER ZWEI GETRENNTE FELDER:
+   "quelle": "Tagesschau"     ← NUR der Medienname, OHNE " / Label"
+   "label":  "öRR"             ← NUR das Spektrum-Label
 
 Antworte ausschließlich mit gültigem JSON in folgendem Format (kein Markdown, kein Kommentar davor oder danach):
 {
-  "faktenkern": "Sachliche Zusammenfassung des Ereignisses in maximal 3 Sätzen.",
+  "faktenkern": "Was ist passiert? Nur gesicherte Fakten, 3-5 Sätze, ohne Wertung.",
   "framing_unterschiede": [
     {
-      "quelle": "Name des Mediums",
-      "label": "Spektrum-Label (z.B. links, mitte-rechts, öRR)",
-      "framing": "Wie dieses Medium das Ereignis rahmt: Was wird betont, welche Perspektive wird eingenommen?",
+      "quelle": "NUR der Medienname, z.B. 'Tagesschau' oder 'Junge Freiheit'",
+      "label": "NUR das Spektrum-Label, z.B. 'links', 'mitte-rechts', 'öRR'",
+      "framing": "Konkrete sprachliche Beobachtung dieses Titels, 3-5 Sätze.",
       "bias_score": 50
     }
   ],
   "wortwahl_diff": [
     {
-      "konzept": "Worum handelt es sich? (z.B. 'Bezeichnung der Person', 'Name des Vorgangs')",
+      "konzept": "Was wird unterschiedlich benannt? (z.B. 'Bezeichnung der Person', 'Name des Vorgangs')",
       "varianten": [
-        {"quelle": "Medienname", "bezeichnung": "Wie dieses Medium es nennt"}
+        {"quelle": "Medienname", "bezeichnung": "exakter Begriff aus dem Titel"}
       ]
     }
   ]
 }
 
-Regeln:
-- framing_unterschiede: Nur Quellen aufführen, die tatsächlich eigene Artikel beigetragen haben.
-- wortwahl_diff: Nur befüllen, wenn Medien dasselbe Konzept unterschiedlich benennen. Sonst leeres Array [].
-- Gib zusätzlich für jede Quelle einen bias_score von 0 bis 100 an, basierend ausschließlich auf dem konkreten Inhalt und der Wortwahl dieses Artikels — nicht auf dem generellen Ruf der Quelle. 0 = sehr linke Rahmung, 50 = neutral/sachlich, 100 = sehr rechte Rahmung. Sei präzise und begründe dich am Text.
-- Antworte auf Deutsch."""
+═══════════════ REGELN ═══════════════
+
+▸ FRAMING: Beschreibe konkret, was DIESER Titel sprachlich tut.
+
+  Achte auf:
+   • Wer wird als Subjekt/Handelnder genannt? Wer als Objekt/Opfer?
+   • Welches Verb wird verwendet (aktiv/passiv, sachlich/emotional)?
+   • Welche wertenden Adjektive oder Qualifikatoren stehen drin?
+   • Was lässt der Titel weg, das andere Titel erwähnen?
+   • Wird ein Aspekt des Ereignisses besonders hervorgehoben?
+
+  Zitiere auffällige Begriffe direkt in „Anführungszeichen".
+
+  NICHT erlaubt — das sind Interpretationen:
+    ✗ "berichtet kritisch"
+    ✗ "zeigt sich besorgt"
+    ✗ "stellt positiv dar"
+    ✗ "nimmt eine konservative Haltung ein"
+
+  ERLAUBT — das sind Beobachtungen:
+    ✓ "Verwendet den Begriff 'Versagen' statt 'Verzögerung'"
+    ✓ "Nennt die Demonstranten 'Aktivisten', erwähnt keine Sachschäden"
+    ✓ "Stellt das Opfer ins Subjekt, der Täter wird nur passiv erwähnt"
+    ✓ "Hebt wirtschaftliche Folgen hervor, lässt humanitäre Aspekte weg"
+
+▸ WORTWAHL_DIFF: Suche aktiv nach sprachlichen Unterschieden zwischen den Titeln. Sei gründlich — auch subtile Unterschiede zählen.
+
+  Typische Kategorien von Unterschieden (das sind BEISPIELE, nicht alles):
+   • Verben: töten / ermorden / sterben / umkommen / hinrichten
+   • Tätigkeiten: protestieren / demonstrieren / randalieren / aufbegehren
+   • Personenbezeichnungen: Aktivist / Demonstrant / Krawallmacher / Anhänger
+   • Ereignisnamen: Aufstand / Revolte / Unruhen / Protest / Krise
+   • Bewegungs-/Handlungsverben: verfolgen / jagen / nachsetzen / fahnden
+   • Wertende Adjektive: rechtsextrem / national-konservativ / patriotisch
+   • Tatbeschreibungen: Anschlag / Vorfall / Tat / Übergriff / Angriff
+
+  Aufgaben:
+   1. Identifiziere Konzepte (Person, Handlung, Ereignis), die in mehreren Titeln vorkommen
+   2. Vergleiche, wie unterschiedliche Quellen diese benennen
+   3. Trage jede gefundene Variation ein
+
+  Bei jeder Variante: exakter Begriff aus dem Titel, nicht umschrieben.
+  Leer [] nur wenn Titel wirklich identische Sprache verwenden.
+
+▸ BIAS_SCORE: Bewerte ausschließlich diesen einen Titel.
+
+  Skala 0-100:
+   •   0 = das linke Extrem (politisch-emotional aufgeladen, klar links)
+   •  50 = sachlich-neutral, keine erkennbare politische Rahmung
+   • 100 = das rechte Extrem (politisch-emotional aufgeladen, klar rechts)
+
+  WICHTIG: Das Medium spielt KEINE Rolle.
+   • Junge Freiheit schreibt einen sachlichen Wirtschafts-Titel → 50
+   • taz schreibt einen sachlichen Wirtschafts-Titel → 50
+   • Junge Freiheit schreibt einen emotional aufgeladenen Migrations-Titel → 80-90
+   • taz schreibt einen emotional aufgeladenen Sozialgerechtigkeits-Titel → 10-20
+
+  Bewertung anhand des Titels selbst — nicht anhand des erwarteten Ruf der Quelle. Wenn ein Titel komplett neutral und sachlich ist, vergib 50, egal welches Medium ihn geschrieben hat.
+
+  Nutze die volle Skala. Bei mehreren ähnlich-gelagerten Titeln dürfen Scores natürlich nah beieinander liegen.
+
+  PFLICHT: Jeder Eintrag in framing_unterschiede MUSS ein bias_score enthalten. Kein Eintrag ohne bias_score.
+
+▸ framing_unterschiede: Nur Quellen aufführen, die tatsächlich eigene Artikel beigetragen haben.
+
+▸ Antworte auf Deutsch."""
 
 
 def find_latest_clusters_file(data_dir=DATA_DIR):
@@ -100,10 +170,32 @@ def parse_json_response(text):
         return json.loads(repair_json(text))
 
 
+def _clean_quelle(name):
+    """Falls KI 'Tagesschau / öRR' liefert statt 'Tagesschau', den Suffix abschneiden."""
+    if not name or " / " not in name:
+        return name, None
+    name_part, _, label_part = name.partition(" / ")
+    return name_part.strip(), label_part.strip()
+
+
+def _sanitize_analysis(analysis):
+    """Defensive Bereinigung: quelle = nur Medienname, label = nur Spektrum."""
+    for fs in analysis.get("framing_unterschiede", []):
+        cleaned, label_from_quelle = _clean_quelle(fs.get("quelle", ""))
+        fs["quelle"] = cleaned
+        if label_from_quelle and not fs.get("label"):
+            fs["label"] = label_from_quelle
+    for wd in analysis.get("wortwahl_diff", []):
+        for v in wd.get("varianten", []):
+            cleaned, _ = _clean_quelle(v.get("quelle", ""))
+            v["quelle"] = cleaned
+    return analysis
+
+
 def analyze_cluster(client, cluster):
     response = client.messages.create(
         model=MODEL,
-        max_tokens=2000,
+        max_tokens=4000,
         system=[{
             "type": "text",
             "text": SYSTEM_PROMPT,
@@ -116,7 +208,7 @@ def analyze_cluster(client, cluster):
     )
 
     text = response.content[0].text
-    analysis = parse_json_response(text)
+    analysis = _sanitize_analysis(parse_json_response(text))
 
     usage = response.usage
     return analysis, {
