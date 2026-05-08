@@ -135,18 +135,17 @@ function spectrumBar(labels, height, showAxis, sources) {
   const dotSz   = Math.max(height + 14, 22);
 
   // sources = [{name, label, bias_score}] wenn vorhanden, sonst Spektrum-Punkte
-  // Sort extreme sources first so center sources are last in DOM → appear on top naturally
+  // ALLE Quellen zeigen, extreme zuerst sortiert (Mitte erscheint dann oben durch DOM-Reihenfolge)
   const dotsHtml = (sources && sources.length)
     ? (() => {
         const sorted = [...sources]
-          .filter(s => s.bias_score != null || SPECTRUM_POSITIONS[s.label] != null)
           .sort((a, b) => {
-            const bA = a.bias_score ?? SPECTRUM_POSITIONS[a.label] ?? 50;
-            const bB = b.bias_score ?? SPECTRUM_POSITIONS[b.label] ?? 50;
+            const bA = a.bias_score ?? specPosition(a.label) ?? 50;
+            const bB = b.bias_score ?? specPosition(b.label) ?? 50;
             return Math.abs(bB - 50) - Math.abs(bA - 50); // extreme first → center last (on top)
           });
         return sorted.map((s) => {
-          const raw = s.bias_score ?? SPECTRUM_POSITIONS[s.label] ?? 50;
+          const raw = s.bias_score ?? specPosition(s.label) ?? 50;
           const pct = biasToPos(raw);
           const favicon = sourceFavicon(s.name);
           const url = sourceUrl(s.name);
@@ -223,6 +222,12 @@ function cleanQuelle(name) {
   return (name || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
 }
 
+function specPosition(label) {
+  // Normalisiert Label und mappt auf Bias-Score-Position (0-100)
+  const k = (label || '').toString().trim().toLowerCase();
+  return SPECTRUM_POSITIONS[k];
+}
+
 function buildSpectrumViz(sources) {
   // De-duplizieren nach bereinigtem Quellnamen — Eintrag mit bias_score bevorzugt
   const seen = new Map();
@@ -234,18 +239,17 @@ function buildSpectrumViz(sources) {
     }
   }
 
-  // Alle Quellen zeigen — bias_score bevorzugt, SPECTRUM_POSITIONS als Fallback
+  // ALLE Quellen zeigen — Position via bias_score, Spektrum-Label, oder Mitte als Fallback
   const scored = [...seen.values()]
-    .filter(s => s.bias_score != null || SPECTRUM_POSITIONS[s.spectrum_label] != null)
     .sort((a, b) => {
-      const bA = a.bias_score ?? (SPECTRUM_POSITIONS[a.spectrum_label] ?? 50);
-      const bB = b.bias_score ?? (SPECTRUM_POSITIONS[b.spectrum_label] ?? 50);
+      const bA = a.bias_score ?? specPosition(a.spectrum_label) ?? 50;
+      const bB = b.bias_score ?? specPosition(b.spectrum_label) ?? 50;
       return Math.abs(bB - 50) - Math.abs(bA - 50);
     });
   if (!scored.length) return '';
 
   const makeBubble = (s) => {
-    const raw = s.bias_score ?? (SPECTRUM_POSITIONS[s.spectrum_label] ?? 50);
+    const raw = s.bias_score ?? specPosition(s.spectrum_label) ?? 50;
     const pct = biasToPos(raw);
     const favicon = sourceFavicon(s.quelle);
     const url = sourceUrl(s.quelle);

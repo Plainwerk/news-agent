@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
 
@@ -29,21 +30,29 @@ def _parse_labels(raw):
         return []
 
 
+def _clean_quelle(name):
+    # Spiegelt frontend cleanQuelle: "ZDF heute (Kehrtwende)" → "ZDF heute"
+    return re.sub(r'\s*\([^)]*\)\s*$', '', name or '').strip()
+
+
 def _parse_sources(raw):
     if not raw:
         return []
-    seen = set()
-    sources = []
+    by_name = {}
     for entry in raw.split(','):
         parts = entry.split('|')
         if len(parts) < 2:
             continue
-        name, label = parts[0].strip(), parts[1].strip()
+        name = _clean_quelle(parts[0])
+        label = parts[1].strip()
         bias = int(parts[2]) if len(parts) > 2 and parts[2].strip().lstrip('-').isdigit() else None
-        if name and name not in seen:
-            seen.add(name)
-            sources.append({"name": name, "label": label, "bias_score": bias})
-    return sources
+        if not name:
+            continue
+        # Eintrag mit bias_score bevorzugt (gleiche Logik wie im Frontend)
+        existing = by_name.get(name)
+        if existing is None or (existing["bias_score"] is None and bias is not None):
+            by_name[name] = {"name": name, "label": label, "bias_score": bias}
+    return list(by_name.values())
 
 
 def _topic_dict(row):
