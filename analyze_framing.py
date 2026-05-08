@@ -8,7 +8,6 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 from dotenv import load_dotenv
 import anthropic
-from json_repair import repair_json
 
 import db
 
@@ -155,21 +154,6 @@ def build_cluster_prompt(cluster):
     return "\n".join(lines)
 
 
-def parse_json_response(text):
-    text = text.strip()
-    if text.startswith("```"):
-        parts = text.split("```")
-        if len(parts) >= 3:
-            text = parts[1]
-            if text.startswith("json"):
-                text = text[4:]
-        text = text.strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return json.loads(repair_json(text))
-
-
 def _clean_quelle(name):
     """Bereinigt KI-generierte Quellennamen:
     - 'Tagesschau / öRR' → ('Tagesschau', 'öRR')
@@ -201,6 +185,73 @@ def _sanitize_analysis(analysis):
     return analysis
 
 
+# Tool-Schema: erzwingt strukturiertes Output mit allen Pflichtfeldern.
+# bias_score, quelle, label, framing sind required → API verweigert unvollständige Antworten.
+FRAMING_TOOL = {
+    "name": "submit_framing_analysis",
+    "description": "Liefert die strukturierte Framing-Analyse eines Cluster-Themas zurück.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "faktenkern": {
+                "type": "string",
+                "description": "Was ist passiert? Nur gesicherte Fakten, 3-5 Sätze, ohne Wertung.",
+            },
+            "framing_unterschiede": {
+                "type": "array",
+                "description": "Genau EIN Eintrag pro Medienname. Alle Felder Pflicht.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "quelle": {
+                            "type": "string",
+                            "description": "Nur Medienname, z.B. 'Tagesschau' (kein Spektrum, keine Klammer-Qualifier).",
+                        },
+                        "label": {
+                            "type": "string",
+                            "description": "Spektrum-Label, z.B. 'links', 'mitte-rechts', 'öRR'.",
+                        },
+                        "framing": {
+                            "type": "string",
+                            "description": "Konkrete sprachliche Beobachtung dieses Titels, 3-5 Sätze.",
+                        },
+                        "bias_score": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "Bias dieses Titels: 0=links-extrem, 50=neutral, 100=rechts-extrem.",
+                        },
+                    },
+                    "required": ["quelle", "label", "framing", "bias_score"],
+                },
+            },
+            "wortwahl_diff": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "konzept": {"type": "string"},
+                        "varianten": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "quelle": {"type": "string"},
+                                    "bezeichnung": {"type": "string"},
+                                },
+                                "required": ["quelle", "bezeichnung"],
+                            },
+                        },
+                    },
+                    "required": ["konzept", "varianten"],
+                },
+            },
+        },
+        "required": ["faktenkern", "framing_unterschiede", "wortwahl_diff"],
+    },
+}
+
+
 def analyze_cluster(client, cluster):
     response = client.messages.create(
         model=MODEL,
@@ -210,14 +261,20 @@ def analyze_cluster(client, cluster):
             "text": SYSTEM_PROMPT,
             "cache_control": {"type": "ephemeral"},
         }],
+        tools=[FRAMING_TOOL],
+        tool_choice={"type": "tool", "name": "submit_framing_analysis"},
         messages=[{
             "role": "user",
             "content": build_cluster_prompt(cluster),
         }],
     )
 
-    text = response.content[0].text
-    analysis = _sanitize_analysis(parse_json_response(text))
+    # Tool-Use-Antwort: Inhalt ist im 'input' des tool_use-Blocks
+    tool_block = next((b for b in response.content if b.type == "tool_use"), None)
+    if tool_block is None:
+        raise ValueError("Keine tool_use-Antwort von der API erhalten")
+
+    analysis = _sanitize_analysis(dict(tool_block.input))
 
     usage = response.usage
     return analysis, {
