@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import sqlite3
@@ -99,11 +100,72 @@ def init_db(conn):
         );
     """)
     conn.commit()
-    try:
-        conn.execute("ALTER TABLE framing_sources ADD COLUMN bias_score INTEGER")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass  # column already exists
+    # Migrationen: nicht-destruktive Spalten-Adds (idempotent dank try/except)
+    for stmt in [
+        "ALTER TABLE framing_sources ADD COLUMN bias_score INTEGER",
+        "ALTER TABLE clusters ADD COLUMN content_hash TEXT",
+    ]:
+        try:
+            conn.execute(stmt)
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Spalte existiert bereits
+
+
+def compute_cluster_hash(articles):
+    """Stabiler Inhalts-Hash eines Clusters basierend auf sortierten Artikel-URLs.
+    Zwei Cluster mit denselben Artikeln → derselbe Hash, egal aus welchem Run."""
+    urls = sorted(a.get("url", "") for a in articles if a.get("url"))
+    if not urls:
+        return None
+    h = hashlib.sha256()
+    for url in urls:
+        h.update(url.encode("utf-8"))
+        h.update(b"\n")
+    return h.hexdigest()[:16]
+
+
+def find_cached_analysis(conn, content_hash):
+    """Sucht eine vorherige erfolgreiche Framing-Analyse für denselben Cluster-Inhalt.
+    Gibt das vollständige Analyse-Dict zurück oder None."""
+    if not content_hash:
+        return None
+    fr = conn.execute("""
+        SELECT fr.id, fr.faktenkern FROM framing_results fr
+        JOIN clusters c ON fr.cluster_id = c.id
+        WHERE c.content_hash = ? AND fr.error IS NULL AND fr.faktenkern IS NOT NULL
+        ORDER BY fr.id DESC LIMIT 1
+    """, (content_hash,)).fetchone()
+
+    if not fr:
+        return None
+
+    sources = conn.execute(
+        "SELECT quelle, spectrum_label, framing, bias_score FROM framing_sources WHERE result_id=?",
+        (fr["id"],)
+    ).fetchall()
+
+    diffs = []
+    for wd in conn.execute(
+        "SELECT id, konzept FROM wortwahl_diffs WHERE result_id=?", (fr["id"],)
+    ).fetchall():
+        vars_ = conn.execute(
+            "SELECT quelle, bezeichnung FROM wortwahl_vars WHERE diff_id=?", (wd["id"],)
+        ).fetchall()
+        diffs.append({
+            "konzept": wd["konzept"],
+            "varianten": [{"quelle": v["quelle"], "bezeichnung": v["bezeichnung"]} for v in vars_],
+        })
+
+    return {
+        "faktenkern": fr["faktenkern"],
+        "framing_unterschiede": [
+            {"quelle": s["quelle"], "label": s["spectrum_label"],
+             "framing": s["framing"], "bias_score": s["bias_score"]}
+            for s in sources
+        ],
+        "wortwahl_diff": diffs,
+    }
 
 
 def _norm(path):
@@ -152,13 +214,14 @@ def save_cluster_run(conn, payload, output_file):
     run_id = cur.lastrowid
 
     for c in payload["clusters"]:
+        chash = compute_cluster_hash(c["articles"])
         cur2 = conn.execute(
             """INSERT INTO clusters
-               (run_id, local_id, label, spectrum_score, spectrum_labels, article_count, relevance_score)
-               VALUES (?,?,?,?,?,?,?)""",
+               (run_id, local_id, label, spectrum_score, spectrum_labels, article_count, relevance_score, content_hash)
+               VALUES (?,?,?,?,?,?,?,?)""",
             (run_id, c["id"], c["label"], c["spectrum_score"],
              json.dumps(c["spectrum_labels"], ensure_ascii=False),
-             c["article_count"], c["relevance_score"]),
+             c["article_count"], c["relevance_score"], chash),
         )
         cid = cur2.lastrowid
         conn.executemany(

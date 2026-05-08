@@ -1,0 +1,56 @@
+#!/bin/bash
+# pre-push Hook: Blockiert Push wenn GitHub Actions gerade läuft oder wartet
+# Setup: GITHUB_TOKEN=ghp_... in .env eintragen
+
+REPO="Plainwerk/news-agent"
+REPO_ROOT=$(git rev-parse --show-toplevel)
+ENV_FILE="$REPO_ROOT/.env"
+PYTHON="/c/Python314/python.exe"
+
+# Token aus .env lesen
+TOKEN=""
+if [ -f "$ENV_FILE" ]; then
+  TOKEN=$(grep "^GITHUB_TOKEN=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '"' | tr -d "'" | tr -d ' ')
+fi
+
+if [ -z "$TOKEN" ]; then
+  echo "⚠️  GITHUB_TOKEN nicht in .env — Push-Check übersprungen."
+  exit 0
+fi
+
+check_status() {
+  local STATUS="$1"
+  local COUNT=$(curl -s \
+    -H "Authorization: token $TOKEN" \
+    -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/$REPO/actions/runs?status=${STATUS}&per_page=5" \
+    | "$PYTHON" -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    print(d.get('total_count', 0))
+except:
+    print(0)
+" 2>/dev/null || echo "0")
+  echo "$COUNT"
+}
+
+IN_PROGRESS=$(check_status "in_progress")
+QUEUED=$(check_status "queued")
+TOTAL=$((IN_PROGRESS + QUEUED))
+
+if [ "$TOTAL" -gt "0" ] 2>/dev/null; then
+  echo ""
+  echo "🚫  PUSH BLOCKIERT — GitHub Actions ist aktiv!"
+  [ "$IN_PROGRESS" -gt "0" ] && echo "    Läuft:   $IN_PROGRESS Run(s)"
+  [ "$QUEUED" -gt "0" ]      && echo "    Wartet:  $QUEUED Run(s)"
+  echo "    → https://github.com/$REPO/actions"
+  echo ""
+  echo "    Warte bis der Run fertig ist, dann erneut pushen."
+  echo "    Notfall-Override: git push --no-verify"
+  echo ""
+  exit 1
+fi
+
+echo "✅  Kein aktiver Actions-Run — Push freigegeben."
+exit 0

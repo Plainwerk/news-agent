@@ -272,6 +272,9 @@ def main():
 
     client = anthropic.Anthropic(api_key=api_key)
 
+    # DB-Connection für Cache-Lookup
+    db_conn = db.get_connection()
+
     results = []
     total_usage = {
         "input_tokens": 0,
@@ -280,10 +283,31 @@ def main():
         "cache_read_input_tokens": 0,
     }
     error_count = 0
+    cache_hits = 0
 
     for i, cluster in enumerate(relevant, start=1):
         short_label = cluster["label"][:55]
         print(f"  [{i:2}/{len(relevant)}] {short_label}...", end=" ", flush=True)
+
+        # Idempotenz-Check: schon mal analysiert?
+        chash = db.compute_cluster_hash(cluster["articles"])
+        cached = db.find_cached_analysis(db_conn, chash) if chash else None
+
+        if cached:
+            cache_hits += 1
+            results.append({
+                "cluster_id": cluster["id"],
+                "label": cluster["label"],
+                "spectrum_score": cluster["spectrum_score"],
+                "spectrum_labels": cluster["spectrum_labels"],
+                "article_count": cluster["article_count"],
+                "faktenkern": cached["faktenkern"],
+                "framing_unterschiede": cached["framing_unterschiede"],
+                "wortwahl_diff": cached["wortwahl_diff"],
+                "usage": {"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0},
+            })
+            print("CACHE  (0 tok, $0.00)")
+            continue
 
         try:
             analysis, usage = analyze_cluster(client, cluster)
@@ -378,9 +402,10 @@ def main():
 
     total_cost = calc_cost(total_usage)
     success_count = len(results) - error_count
+    api_calls = success_count - cache_hits
 
     print(f"\nGespeichert: {output_file}")
-    print(f"{success_count} analysiert, {error_count} Fehler\n")
+    print(f"{success_count} analysiert ({cache_hits} aus Cache, {api_calls} per API), {error_count} Fehler\n")
 
     print("Token-Verbrauch:")
     print(f"  Input (unkached):   {total_usage['input_tokens']:>8,}")
@@ -388,6 +413,10 @@ def main():
     print(f"  Cache-Write:        {total_usage['cache_creation_input_tokens']:>8,}")
     print(f"  Cache-Read:         {total_usage['cache_read_input_tokens']:>8,}")
     print(f"\nGeschätzte Kosten:    ${total_cost:.4f}")
+    if cache_hits > 0:
+        avg_cost_per_call = total_cost / api_calls if api_calls > 0 else 0.018
+        saved = cache_hits * avg_cost_per_call
+        print(f"Gespart durch Cache:  ${saved:.4f} ({cache_hits} Cluster nicht erneut analysiert)")
 
     successes = [r for r in results if "error" not in r]
     if successes:
