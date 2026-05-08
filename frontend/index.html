@@ -146,11 +146,6 @@
 
     .spectrum-axis { display: flex; justify-content: space-between; margin-top: 5px; }
     .spectrum-axis-label { font-size: 0.62rem; font-weight: 500; color: var(--muted); }
-    .spec-extras { display: flex; gap: 4px; align-items: center; }
-    .spec-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-    .spec-dot-oerr    { background: var(--oerr); }
-    .spec-dot-agentur { background: var(--agentur); }
-
     /* ── Spectrum badges (framing table) ────────────────────── */
     .spec-badge {
       display: inline-block;
@@ -162,13 +157,14 @@
       text-shadow: 0 1px 2px rgba(0,0,0,.25);
       vertical-align: middle;
     }
-    .spec-links        { background: #e63946; }
-    .spec-mitte-links  { background: #f4845f; }
-    .spec-mitte        { background: #adb5bd; color: #333; text-shadow: none; }
-    .spec-mitte-rechts { background: #5b9bd5; }
-    .spec-rechts       { background: #1d3557; }
-    .spec-oerr         { background: #27ae60; }
-    .spec-agentur      { background: #9ca3af; color: #333; text-shadow: none; }
+    .spec-links          { background: #e63946; }
+    .spec-mitte-links    { background: #f4845f; }
+    .spec-mitte          { background: #adb5bd; color: #333; text-shadow: none; }
+    .spec-mitte-rechts   { background: #5b9bd5; }
+    .spec-rechts         { background: #1d3557; }
+    .spec-oerr           { background: #27ae60; }
+    .spec-agentur        { background: #9ca3af; color: #333; text-shadow: none; }
+    .spec-international  { background: #6c757d; }
 
     /* ── Hero ───────────────────────────────────────────────── */
     .hero-card {
@@ -319,18 +315,6 @@
       border: 1px solid var(--border);
       margin-bottom: 1.25rem;
     }
-    .framing-row { display: grid; grid-template-columns: 190px 1fr; }
-    .framing-row:nth-child(even) { background: #f8f9fa; }
-    .framing-row:nth-child(odd)  { background: #fff; }
-    .framing-cell { padding: 0.6rem 0.875rem; font-size: 0.83rem; line-height: 1.5; }
-    .framing-source {
-      font-weight: 600;
-      border-right: 1px solid var(--border);
-      display: flex;
-      align-items: flex-start;
-      gap: 5px;
-      flex-wrap: wrap;
-    }
     .wort-konzept { font-size: 0.76rem; font-weight: 600; color: #374151; margin-top: 0.5rem; margin-bottom: 0.25rem; }
     .wort-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem 0.75rem; margin-bottom: 0.5rem; }
     .wort-item { font-size: 0.78rem; }
@@ -367,20 +351,6 @@
       background: linear-gradient(to right, #e63946, #f4a261, #8b5cf6, #1d3557);
       z-index: 0;
     }
-    .bias-center-marker {
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%, -50%);
-      width: 22px;
-      height: 22px;
-      z-index: 3;
-      pointer-events: none;
-      opacity: 0.85;
-      filter: drop-shadow(0 1px 3px rgba(0,0,0,.3));
-    }
-    .bias-center-marker img { width: 100%; height: 100%; }
-
     .bias-axis-labels {
       position: absolute;
       left: 0; right: 0;
@@ -437,8 +407,6 @@
       color: var(--muted);
       font-weight: 400;
     }
-    .bias-mobile-list { display: none; }
-
     /* ── Framing per-source collapse ────────────────────────────── */
     .framing-row-wrap {
       border-bottom: 1px solid var(--border);
@@ -496,7 +464,6 @@
     /* ── Responsive ─────────────────────────────────────────── */
     @media (max-width: 767px) {
       .bias-viz-wrap, .controversy-line { display: none; }
-      .bias-mobile-list { display: block; }
     }
 
     @media (max-width: 576px) {

@@ -64,7 +64,7 @@ _TOPICS_SELECT = """
     SELECT c.id, c.label, c.spectrum_score, c.spectrum_labels,
            c.article_count, c.relevance_score,
            fr.faktenkern,
-           COUNT(fs.id) AS framing_count,
+           COUNT(DISTINCT fs.quelle) AS framing_count,
            GROUP_CONCAT(fs.quelle || '|' || COALESCE(fs.spectrum_label,'') || '|' || COALESCE(CAST(fs.bias_score AS TEXT),'')) AS sources_raw
     FROM clusters c
     JOIN cluster_runs cr ON c.run_id = cr.id

@@ -121,7 +121,7 @@ Antworte ausschließlich mit gültigem JSON in folgendem Format (kein Markdown, 
 
   PFLICHT: Jeder Eintrag in framing_unterschiede MUSS ein bias_score enthalten. Kein Eintrag ohne bias_score.
 
-▸ framing_unterschiede: Nur Quellen aufführen, die tatsächlich eigene Artikel beigetragen haben.
+▸ framing_unterschiede: Genau EIN Eintrag pro Medienname. Wenn eine Quelle mehrere Titel beigetragen hat, fasse ihr Framing in EINEM Eintrag zusammen — kein "(Kehrtwende)", "(Teil 2)" o.ä. im quelle-Feld. Nur Quellen aufführen, die tatsächlich eigene Artikel beigetragen haben.
 
 ▸ Antworte auf Deutsch."""
 
@@ -171,11 +171,20 @@ def parse_json_response(text):
 
 
 def _clean_quelle(name):
-    """Falls KI 'Tagesschau / öRR' liefert statt 'Tagesschau', den Suffix abschneiden."""
-    if not name or " / " not in name:
+    """Bereinigt KI-generierte Quellennamen:
+    - 'Tagesschau / öRR' → ('Tagesschau', 'öRR')
+    - 'ZDF heute (Kehrtwende)' → ('ZDF heute', None)
+    """
+    import re
+    if not name:
         return name, None
-    name_part, _, label_part = name.partition(" / ")
-    return name_part.strip(), label_part.strip()
+    # Parenthetical qualifier entfernen: "ZDF heute (Kehrtwende)" → "ZDF heute"
+    name = re.sub(r'\s*\([^)]*\)\s*$', '', name).strip()
+    # " / Label"-Suffix entfernen: "Tagesschau / öRR" → ("Tagesschau", "öRR")
+    if " / " in name:
+        name_part, _, label_part = name.partition(" / ")
+        return name_part.strip(), label_part.strip()
+    return name, None
 
 
 def _sanitize_analysis(analysis):

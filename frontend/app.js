@@ -52,60 +52,15 @@ const SPECTRUM_POSITIONS = {
 };
 
 const SPEC_CSS = {
-  'links':        'spec-links',
-  'mitte-links':  'spec-mitte-links',
-  'mitte':        'spec-mitte',
-  'mitte-rechts': 'spec-mitte-rechts',
-  'rechts':       'spec-rechts',
-  'öRR':          'spec-oerr',
-  'Agentur':      'spec-agentur',
+  'links':         'spec-links',
+  'mitte-links':   'spec-mitte-links',
+  'mitte':         'spec-mitte',
+  'mitte-rechts':  'spec-mitte-rechts',
+  'rechts':        'spec-rechts',
+  'öRR':           'spec-oerr',
+  'agentur':       'spec-agentur',
+  'international': 'spec-international',
 };
-
-// ── Topic icons (null = no icon) ──────────────────────────────────
-const ICON_RULES = [
-  { kws: ['ukraine', 'krieg', 'militär', 'waffe', 'soldat', 'angriff',
-          'bomben', 'iran-krieg', 'iran krieg', 'gefecht', 'kampf'], icon: '🔥' },
-  { kws: ['trump', 'pentagon', 'washington', 'biden', 'kongress',
-          'artemis', 'us-notenbank', 'us-präsident', 'white house'], icon: '🇺🇸' },
-  { kws: ['putin', 'russland', 'moskau', 'kreml', 'russisch'], icon: '🇷🇺' },
-  { kws: ['iran', 'nahost', 'israel', 'gaza', 'palästin',
-          'terror', 'messerangriff', 'islamisch'], icon: '🕌' },
-  { kws: ['china', 'peking', 'beijing', 'chinesisch'], icon: '🇨🇳' },
-  { kws: ['eu-', ' eu ', 'europäisch', 'brüssel', 'eu-kommission',
-          'europarat'], icon: '🇪🇺' },
-  { kws: ['charles', 'könig', 'royal', 'kate', 'william',
-          'prinz', 'hochzeit', 'krönung'], icon: '👑' },
-  { kws: ['bundesregierung', 'bundestag', 'koalition', 'kanzler',
-          'merz', 'scholz', 'habeck', 'regierung', 'bundesrat',
-          'aktionsplan', 'gesetzentwurf'], icon: '🏛️' },
-  { kws: ['inflation', 'leitzins', 'fed ', 'ezb', 'notenbank', 'aktie',
-          'börse', 'aldi', 'porsche', 'unicredit', 'verbraucherpreis',
-          'umsatz', 'gewinn', 'opec', 'öl', 'discounter', 'finanz',
-          'haushalt', 'rente', 'bank'], icon: '💰' },
-  { kws: ['ki ', 'künstliche intelligenz', 'facebook', 'meta ',
-          'instagram', 'software', 'technologie', 'digital',
-          'gaming', 'computer', 'apple', 'google'], icon: '🤖' },
-  { kws: ['krankenhaus', 'krankenkasse', 'gesundheit', 'versicherung',
-          'medizin', 'arzt', 'patienten', 'krankenversicherung'], icon: '🏥' },
-  { kws: ['gericht', 'urteil', 'klage', 'prozess', 'haft', 'freispruch',
-          'verurteil', 'anklage', 'straftat', 'terroristin', 'raf'], icon: '⚖️' },
-  { kws: ['maritime', 'bundeswehr', 'nato', 'sicherheit',
-          'verteidigung'], icon: '🛡️' },
-  { kws: ['klima', 'umwelt', 'co2', 'energie', 'solar', 'wind',
-          'nachhaltigkeit'], icon: '🌍' },
-  { kws: ['wal', 'tier', 'natur', 'buckelwal', 'wildtier'], icon: '🐋' },
-  { kws: ['musik', 'film', 'prada', 'kunst', 'kultur',
-          'berlinale', 'oscar', 'streaming'], icon: '🎭' },
-  { kws: ['sport', 'fußball', 'bundesliga', 'tennis', 'olympia', 'hsv'], icon: '⚽' },
-];
-
-function getTopicIcon(label) {
-  const lower = label.toLowerCase();
-  for (const { kws, icon } of ICON_RULES) {
-    if (kws.some(kw => lower.includes(kw))) return icon;
-  }
-  return null; // no fallback icon
-}
 
 // ── Category detection ────────────────────────────────────────────
 const CATEGORY_KEYWORDS = {
@@ -122,14 +77,6 @@ const CATEGORY_KEYWORDS = {
                    'klima', 'gesundheit', 'bildung', 'jugend', 'ki ',
                    'technologie', 'gaming', 'wal', 'tier'],
 };
-
-function getCategory(label) {
-  const lower = label.toLowerCase();
-  for (const [cat, kws] of Object.entries(CATEGORY_KEYWORDS)) {
-    if (kws.some(kw => lower.includes(kw))) return cat;
-  }
-  return null;
-}
 
 // ── Blocked topic patterns ────────────────────────────────────────
 const BLOCKED_PATTERNS = [
@@ -251,7 +198,7 @@ async function openModal(id) {
 
   document.getElementById('modal-title').textContent  = meta?.label ?? '…';
   document.getElementById('modal-meta').textContent   = meta
-    ? `${meta.article_count} Artikel · ${meta.spectrum_score} Spektrum-Ebenen`
+    ? `${meta.article_count} Artikel${meta.framing_count > 0 ? ` · ${meta.framing_count} Quellen analysiert` : ''}`
     : '';
   document.getElementById('modal-spectrum').innerHTML = '';
   document.getElementById('modal-body').innerHTML =
@@ -272,14 +219,19 @@ async function openModal(id) {
 }
 
 function buildSpectrumViz(sources) {
-  // Sort extreme sources first → center sources last in DOM → appear on top naturally
+  // Alle Quellen zeigen — bias_score bevorzugt, SPECTRUM_POSITIONS als Fallback
   const scored = sources
-    .filter(s => s.bias_score != null)
-    .sort((a, b) => Math.abs(b.bias_score - 50) - Math.abs(a.bias_score - 50));
+    .filter(s => s.bias_score != null || SPECTRUM_POSITIONS[s.spectrum_label] != null)
+    .sort((a, b) => {
+      const bA = a.bias_score ?? (SPECTRUM_POSITIONS[a.spectrum_label] ?? 50);
+      const bB = b.bias_score ?? (SPECTRUM_POSITIONS[b.spectrum_label] ?? 50);
+      return Math.abs(bB - 50) - Math.abs(bA - 50);
+    });
   if (!scored.length) return '';
 
   const makeBubble = (s) => {
-    const pct = biasToPos(s.bias_score);
+    const raw = s.bias_score ?? (SPECTRUM_POSITIONS[s.spectrum_label] ?? 50);
+    const pct = biasToPos(raw);
     const favicon = sourceFavicon(s.quelle);
     const url = sourceUrl(s.quelle);
     const inner = favicon
@@ -312,17 +264,6 @@ function buildControversyLine(sources) {
   const std  = Math.sqrt(scores.reduce((a, b) => a + (b - mean) ** 2, 0) / scores.length);
   const [label, icon] = std > 20 ? ['hoch', '🔴'] : std > 10 ? ['mittel', '🟡'] : ['Konsens', '🟢'];
   return `<div class="controversy-line">Streuung: ${label} ${icon}<span class="sigma"> σ=${std.toFixed(1)}</span></div>`;
-}
-
-function buildMobileFramingList(sources) {
-  const rows = sources.map(fs => `
-    <div class="framing-row">
-      <div class="framing-cell framing-source">
-        ${specBadge(fs.spectrum_label)}<span>${esc(fs.quelle)}</span>
-      </div>
-      <div class="framing-cell">${esc(fs.framing)}</div>
-    </div>`).join('');
-  return `<div class="bias-mobile-list"><div class="framing-table">${rows}</div></div>`;
 }
 
 function renderModalBody(data) {
@@ -414,9 +355,9 @@ function renderHero(topic) {
         : ''}
       <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
         <span class="hero-meta">
-          ${topic.article_count} Artikel &nbsp;·&nbsp; ${topic.spectrum_score} Spektrum-Ebenen
+          ${topic.article_count} Artikel
           ${topic.framing_count > 0
-            ? `&nbsp;·&nbsp; <span class="has-framing">${topic.framing_count} Framings</span>`
+            ? `&nbsp;·&nbsp; <span class="has-framing">${topic.framing_count} Quellen</span>`
             : ''}
         </span>
         <button class="btn-hero-detail" onclick="openModal(${topic.id})">
@@ -439,7 +380,7 @@ function buildCard(topic) {
         <div class="card-meta">
           ${topic.article_count} Artikel
           ${topic.framing_count > 0
-            ? `<span class="has-framing ms-2">● ${topic.framing_count} Framings</span>`
+            ? `<span class="has-framing ms-2">● ${topic.framing_count} Quellen</span>`
             : ''}
         </div>
       </div>
