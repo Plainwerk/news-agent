@@ -111,6 +111,41 @@ def init_db(conn):
         except sqlite3.OperationalError:
             pass  # Spalte existiert bereits
 
+    # Indexe für Cache-Lookup-Performance
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_clusters_content_hash ON clusters(content_hash);
+        CREATE INDEX IF NOT EXISTS idx_framing_results_cluster_id ON framing_results(cluster_id);
+    """)
+    conn.commit()
+
+    # Einmalige Backfill: content_hash für Cluster die vor der Migration angelegt wurden
+    _backfill_content_hashes(conn)
+
+
+def _backfill_content_hashes(conn):
+    """Setzt content_hash für Cluster nach, die ihn noch nicht haben (Migration)."""
+    cluster_ids = [r[0] for r in conn.execute(
+        "SELECT id FROM clusters WHERE content_hash IS NULL"
+    ).fetchall()]
+    if not cluster_ids:
+        return 0
+
+    count = 0
+    for cid in cluster_ids:
+        urls = [r[0] for r in conn.execute(
+            "SELECT url FROM cluster_articles WHERE cluster_id=? AND url IS NOT NULL",
+            (cid,)
+        ).fetchall()]
+        if not urls:
+            continue
+        chash = compute_cluster_hash([{"url": u} for u in urls])
+        if chash:
+            conn.execute("UPDATE clusters SET content_hash=? WHERE id=?", (chash, cid))
+            count += 1
+    if count > 0:
+        conn.commit()
+    return count
+
 
 def compute_cluster_hash(articles):
     """Stabiler Inhalts-Hash eines Clusters basierend auf sortierten Artikel-URLs.

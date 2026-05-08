@@ -272,8 +272,9 @@ def main():
 
     client = anthropic.Anthropic(api_key=api_key)
 
-    # DB-Connection für Cache-Lookup
+    # DB-Connection für Cache-Lookup — init_db() stellt sicher dass content_hash + Indexe existieren
     db_conn = db.get_connection()
+    db.init_db(db_conn)
 
     results = []
     total_usage = {
@@ -289,9 +290,14 @@ def main():
         short_label = cluster["label"][:55]
         print(f"  [{i:2}/{len(relevant)}] {short_label}...", end=" ", flush=True)
 
-        # Idempotenz-Check: schon mal analysiert?
-        chash = db.compute_cluster_hash(cluster["articles"])
-        cached = db.find_cached_analysis(db_conn, chash) if chash else None
+        # Idempotenz-Check: schon mal analysiert? (fail-safe: bei Fehler einfach API nutzen)
+        cached = None
+        try:
+            chash = db.compute_cluster_hash(cluster["articles"])
+            if chash:
+                cached = db.find_cached_analysis(db_conn, chash)
+        except Exception as e:
+            print(f"(Cache-Lookup-Fehler, fahre mit API fort: {e})", end=" ")
 
         if cached:
             cache_hits += 1
@@ -399,6 +405,8 @@ def main():
 
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
+
+    db_conn.close()
 
     total_cost = calc_cost(total_usage)
     success_count = len(results) - error_count
