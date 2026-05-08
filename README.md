@@ -122,6 +122,14 @@ Das Fetch- und Cluster-Skript ist kostenlos (kein API-Aufruf).
 
 ---
 
+## Die Geschichte des Projekts
+
+Wie aus einer Idee ein laufendes System wurde — inkl. aller Sackgassen, technischen Pivots und schmerzhaften Lektionen: siehe [`JOURNEY.md`](JOURNEY.md).
+
+Pro Phase wird beschrieben: was war der Stand, was hat nicht funktioniert, was war die finale Lösung und welche Lektion wir mitgenommen haben.
+
+---
+
 ## Technischer Stack
 
 | Komponente | Technologie |
