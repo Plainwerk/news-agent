@@ -12,8 +12,8 @@ Das Ziel: Eigenständige Meinungsbildung statt vorgefertigter Einordnung.
 
 Für jedes Thema liefert Prisma drei Blöcke:
 
-1. **Faktenkern** — Was ist passiert? (sachlich, max. 3 Sätze)
-2. **Framing** — Wie rahmt jede Quelle das Ereignis? Mit Bias-Score auf einer Links–Rechts-Skala und Kontroversitätsampel (🟢 Konsens / 🟡 mittel / 🔴 hoch)
+1. **Faktenkern** — Was ist passiert? (sachlich, 3–5 Sätze)
+2. **Framing** — Wie rahmt jede Quelle das Ereignis? Mit Bias-Score auf einer Links–Rechts-Skala und Kontroversitätsindikator (🟢 Konsens / 🟡 mittel / 🔴 hoch)
 3. **Wortwahl-Diff** — Wie nennen die Medien dasselbe? ("Feuerpause" vs. "Waffenstillstand")
 
 ---
@@ -27,10 +27,14 @@ cluster_topics.py     → Artikel nach Thema gruppieren (TF-IDF + Cosine-Similar
       ↓
 analyze_framing.py    → Framing-Analyse per Claude API (claude-sonnet-4-6)
       ↓
-api.py                → FastAPI-Backend mit SQLite
+db.py                 → SQLite-Persistenz
       ↓
-frontend/             → Vanilla-JS-App mit Bootstrap
+api.py                → FastAPI-Backend
+      ↓
+frontend/             → Vanilla-JS-App mit Bootstrap 5
 ```
+
+Die Pipeline wird manuell per **GitHub Actions** (`workflow_dispatch`) ausgelöst — kein laufender Server nötig, funktioniert vom Handy aus.
 
 ---
 
@@ -57,13 +61,13 @@ Quellen sind in [`sources.md`](sources.md) konfiguriert — neue Feeds lassen si
 
 ### Voraussetzungen
 
-- Python 3.10+
+- Python 3.11+
 - [Anthropic API Key](https://console.anthropic.com/)
 
 ### Installation
 
 ```bash
-git clone https://github.com/dein-name/news-agent.git
+git clone https://github.com/Plainwerk/news-agent.git
 cd news-agent
 pip install -r requirements.txt
 ```
@@ -74,7 +78,7 @@ pip install -r requirements.txt
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 ```
 
-### Pipeline ausführen
+### Pipeline lokal ausführen
 
 ```bash
 # 1. Feeds abrufen
@@ -83,7 +87,7 @@ python fetch_feeds.py
 # 2. Themen clustern
 python cluster_topics.py
 
-# 3. Framing analysieren (Claude API — kostenpflichtig, ca. $0.50–$1.00 pro Run)
+# 3. Framing analysieren (Claude API — ca. $0.50–$1.00 pro Run)
 python analyze_framing.py
 
 # 4. App starten
@@ -91,6 +95,22 @@ uvicorn api:app --reload
 ```
 
 Dann im Browser öffnen: [http://localhost:8000](http://localhost:8000)
+
+### Pipeline via GitHub Actions
+
+Unter **Actions → "Prisma – Pipeline aktualisieren" → Run workflow** kann die gesamte Pipeline ohne lokalen Rechner ausgeführt werden. Das Ergebnis (aktualisierte SQLite-DB) wird automatisch in den `master`-Branch gepusht und von Render deployt.
+
+Voraussetzung: `ANTHROPIC_API_KEY` als GitHub Secret hinterlegt.
+
+---
+
+## Deployment
+
+Die App läuft auf [Render](https://render.com) (Free Tier).
+
+- **Live-URL:** https://news-agent-a4p4.onrender.com
+- Render deployt automatisch bei jedem Push auf `master`
+- Hinweis: Free Tier schläft nach 15 min Inaktivität ein — erster Aufruf kann ~30–60 Sekunden dauern
 
 ---
 
@@ -112,6 +132,8 @@ Das Fetch- und Cluster-Skript ist kostenlos (kein API-Aufruf).
 | Datenbank | SQLite |
 | Backend | FastAPI + uvicorn |
 | Frontend | Vanilla JS, Bootstrap 5, Inter |
+| CI/CD | GitHub Actions |
+| Hosting | Render |
 
 ---
 
@@ -126,6 +148,9 @@ news-agent/
 ├── db.py                 # SQLite-Datenbankschicht
 ├── sources.md            # Quellen-Konfiguration
 ├── requirements.txt
+├── .github/
+│   └── workflows/
+│       └── pipeline.yml  # GitHub Actions Pipeline
 └── frontend/
     ├── index.html
     ├── app.js
@@ -136,11 +161,12 @@ news-agent/
 
 ## Ideen & Roadmap
 
-- [ ] Automatischer Tages-Cron (fetch → cluster → analyze)
+- [x] Manueller Pipeline-Trigger via GitHub Actions (Handy-freundlich)
+- [ ] Automatischer Tages-Cron (täglich um z.B. 06:00 Uhr)
 - [ ] Embedding-basiertes Clustering für bessere Themen-Erkennung
 - [ ] Volltextanalyse statt nur Titel
+- [ ] Mehr Quellen (insb. Mitte-Rechts und internationale)
 - [ ] Mobile App
-- [ ] Mehr internationale Quellen
 
 ---
 
