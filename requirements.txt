@@ -8,9 +8,9 @@ requests==2.32.3
 scikit-learn==1.8.0
 numpy==2.4.4
 
-# Framing-Analyse (Phase 3) — Tool Use erzwingt valides JSON, json-repair entfaellt
-anthropic>=0.50.0
-python-dotenv>=1.0.0
+# Framing-Analyse (Phase 3) — laeuft ueber die lokale Claude-Code-CLI (`claude`),
+# abgerechnet ueber das Monatsabo. Keine Python-LLM-Dependency, kein API-Key noetig.
+# Voraussetzung: Claude Code installiert und angemeldet (siehe README).
 
 # API + App (Phase 4)
 fastapi>=0.115.0

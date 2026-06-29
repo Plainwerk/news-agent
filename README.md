@@ -25,7 +25,7 @@ fetch_feeds.py        → RSS-Feeds abrufen (20 Quellen)
       ↓
 cluster_topics.py     → Artikel nach Thema gruppieren (TF-IDF + Cosine-Similarity)
       ↓
-analyze_framing.py    → Framing-Analyse per Claude API (claude-sonnet-4-6)
+analyze_framing.py    → Framing-Analyse per Claude-CLI / Abo (claude-sonnet-4-6)
       ↓
 db.py                 → SQLite-Persistenz
       ↓
@@ -34,7 +34,9 @@ api.py                → FastAPI-Backend
 frontend/             → Vanilla-JS-App mit Bootstrap 5
 ```
 
-Die Pipeline wird manuell per **GitHub Actions** (`workflow_dispatch`) ausgelöst — kein laufender Server nötig, funktioniert vom Handy aus.
+Die Pipeline wird **lokal auf dem PC** ausgelöst — Doppelklick auf `Prisma-aktualisieren.bat`. Die Framing-Analyse läuft über die lokale Claude-Code-CLI und damit über das **Claude-Monatsabo** (kein API-Key, keine Pro-Call-Kosten). Anschließend wird die aktualisierte SQLite-DB nach `master` gepusht und von Render deployt.
+
+> Hinweis: Der frühere GitHub-Actions-Trigger (`workflow_dispatch`) funktioniert für die Analyse **nicht mehr**, da die Abo-Authentifizierung nur lokal vorliegt. Fetch/Cluster könnten weiter in der Cloud laufen, die Framing-Analyse muss lokal passieren.
 
 ---
 
@@ -62,7 +64,7 @@ Quellen sind in [`sources.md`](sources.md) konfiguriert — neue Feeds lassen si
 ### Voraussetzungen
 
 - Python 3.11+
-- [Anthropic API Key](https://console.anthropic.com/)
+- [Claude Code](https://claude.com/claude-code) installiert und angemeldet (`claude` im PATH). Die Framing-Analyse läuft über das **Claude-Monatsabo**, nicht über einen API-Key.
 
 ### Installation
 
@@ -72,13 +74,11 @@ cd news-agent
 pip install -r requirements.txt
 ```
 
-### API-Key konfigurieren
+### Tagesaktualisierung (einfachster Weg)
 
-```bash
-echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
-```
+Doppelklick auf **`Prisma-aktualisieren.bat`** — das holt Feeds, clustert, analysiert das Framing über das Abo und pusht die DB zu Render.
 
-### Pipeline lokal ausführen
+### Pipeline manuell ausführen
 
 ```bash
 # 1. Feeds abrufen
@@ -87,7 +87,7 @@ python fetch_feeds.py
 # 2. Themen clustern
 python cluster_topics.py
 
-# 3. Framing analysieren (Claude API — ca. $0.50–$1.00 pro Run)
+# 3. Framing analysieren (über Claude-CLI / Abo — keine Pro-Call-Kosten)
 python analyze_framing.py
 
 # 4. App starten
@@ -96,11 +96,7 @@ uvicorn api:app --reload
 
 Dann im Browser öffnen: [http://localhost:8000](http://localhost:8000)
 
-### Pipeline via GitHub Actions
-
-Unter **Actions → "Prisma – Pipeline aktualisieren" → Run workflow** kann die gesamte Pipeline ohne lokalen Rechner ausgeführt werden. Das Ergebnis (aktualisierte SQLite-DB) wird automatisch in den `master`-Branch gepusht und von Render deployt.
-
-Voraussetzung: `ANTHROPIC_API_KEY` als GitHub Secret hinterlegt.
+> Die Analyse muss auf dem PC laufen, auf dem Claude Code angemeldet ist — die Abo-Authentifizierung liegt nur lokal vor. Ein Cloud-Trigger (GitHub Actions) funktioniert dafür nicht mehr.
 
 ---
 
@@ -116,9 +112,9 @@ Die App läuft auf [Render](https://render.com) (Free Tier).
 
 ## Kosten
 
-Die Framing-Analyse verwendet `claude-sonnet-4-6`. Ein typischer Run mit ~40–50 Clustern kostet ca. **$0.50–$1.00**.
+Die Framing-Analyse verwendet `claude-sonnet-4-6` über die lokale Claude-Code-CLI und wird damit über das **Claude-Monatsabo** abgerechnet — **keine Pro-Call-Kosten** mehr. Ein Run analysiert ~40–50 Cluster (je 1 Abo-Aufruf), zählt also gegen die Abo-Nutzungsgrenzen.
 
-Das Fetch- und Cluster-Skript ist kostenlos (kein API-Aufruf).
+Das Fetch- und Cluster-Skript ist ohnehin kostenlos (kein LLM-Aufruf).
 
 ---
 
@@ -136,7 +132,7 @@ Pro Phase wird beschrieben: was war der Stand, was hat nicht funktioniert, was w
 |---|---|
 | RSS-Parsing | feedparser |
 | Clustering | scikit-learn (TF-IDF + Cosine-Similarity) |
-| LLM-Analyse | Anthropic SDK (claude-sonnet-4-6) |
+| LLM-Analyse | Claude-Code-CLI / Abo (claude-sonnet-4-6) |
 | Datenbank | SQLite |
 | Backend | FastAPI + uvicorn |
 | Frontend | Vanilla JS, Bootstrap 5, Inter |

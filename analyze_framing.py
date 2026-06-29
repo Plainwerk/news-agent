@@ -1,27 +1,19 @@
 import json
 import os
+import re
+import shutil
+import subprocess
 import sys
-import time
 from datetime import datetime
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-from dotenv import load_dotenv
-import anthropic
-
 import db
-
-load_dotenv(override=True)
 
 DATA_DIR = "data"
 MODEL = "claude-sonnet-4-6"
 MIN_SPECTRUM_SCORE = 2
-
-# Kosten pro 1M Tokens (Sonnet 4.6)
-COST_INPUT = 3.00 / 1_000_000
-COST_OUTPUT = 15.00 / 1_000_000
-COST_CACHE_WRITE = 3.75 / 1_000_000
-COST_CACHE_READ = 0.30 / 1_000_000
+CLI_TIMEOUT = 240  # Sekunden pro Cluster-Analyse
 
 SYSTEM_PROMPT = """Du bist ein Werkzeug für Medienanalyse. Deine Aufgabe ist Beobachten, nicht Bewerten. Du beschreibst was sprachlich passiert — du interpretierst nicht, was es bedeutet.
 
@@ -159,7 +151,6 @@ def _clean_quelle(name):
     - 'Tagesschau / öRR' → ('Tagesschau', 'öRR')
     - 'ZDF heute (Kehrtwende)' → ('ZDF heute', None)
     """
-    import re
     if not name:
         return name, None
     # Parenthetical qualifier entfernen: "ZDF heute (Kehrtwende)" → "ZDF heute"
@@ -185,176 +176,162 @@ def _sanitize_analysis(analysis):
     return analysis
 
 
-# Tool-Schema: erzwingt strukturiertes Output mit allen Pflichtfeldern.
-# bias_score, quelle, label, framing sind required → API verweigert unvollständige Antworten.
-FRAMING_TOOL = {
-    "name": "submit_framing_analysis",
-    "description": "Liefert die strukturierte Framing-Analyse eines Cluster-Themas zurück.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "faktenkern": {
-                "type": "string",
-                "description": "Was ist passiert? Nur gesicherte Fakten, 3-5 Sätze, ohne Wertung.",
-            },
-            "framing_unterschiede": {
-                "type": "array",
-                "description": "Genau EIN Eintrag pro Medienname. Alle Felder Pflicht.",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "quelle": {
-                            "type": "string",
-                            "description": "Nur Medienname, z.B. 'Tagesschau' (kein Spektrum, keine Klammer-Qualifier).",
-                        },
-                        "label": {
-                            "type": "string",
-                            "description": "Spektrum-Label, z.B. 'links', 'mitte-rechts', 'öRR'.",
-                        },
-                        "framing": {
-                            "type": "string",
-                            "description": "Konkrete sprachliche Beobachtung dieses Titels, 3-5 Sätze.",
-                        },
-                        "bias_score": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 100,
-                            "description": "Bias dieses Titels: 0=links-extrem, 50=neutral, 100=rechts-extrem.",
-                        },
-                    },
-                    "required": ["quelle", "label", "framing", "bias_score"],
-                },
-            },
-            "wortwahl_diff": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "konzept": {"type": "string"},
-                        "varianten": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "quelle": {"type": "string"},
-                                    "bezeichnung": {"type": "string"},
-                                },
-                                "required": ["quelle", "bezeichnung"],
-                            },
-                        },
-                    },
-                    "required": ["konzept", "varianten"],
-                },
-            },
-        },
-        "required": ["faktenkern", "framing_unterschiede", "wortwahl_diff"],
-    },
-}
+# ──────────────────────────────────────────────────────────────────────────────
+# LLM-Engine: lokale Claude-Code-CLI statt metered Anthropic-API.
+# Die Analyse läuft über das Claude-Monatsabo auf diesem PC — kein API-Key,
+# keine Pro-Call-Abrechnung. Voraussetzung: `claude` installiert und angemeldet.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def find_claude_cli():
+    path = shutil.which("claude")
+    if not path:
+        raise RuntimeError(
+            "Claude-Code-CLI nicht gefunden (PATH). Installieren und mit `claude` einmal "
+            "anmelden — die Analyse läuft über dein Abo, nicht über einen API-Key."
+        )
+    return path
 
 
-def analyze_cluster(client, cluster):
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=4000,
-        system=[{
-            "type": "text",
-            "text": SYSTEM_PROMPT,
-            "cache_control": {"type": "ephemeral"},
-        }],
-        tools=[FRAMING_TOOL],
-        tool_choice={"type": "tool", "name": "submit_framing_analysis"},
-        messages=[{
-            "role": "user",
-            "content": build_cluster_prompt(cluster),
-        }],
+def call_claude_cli(claude_path, prompt, model=MODEL, timeout=CLI_TIMEOUT):
+    """Ruft `claude -p` headless auf und gibt den reinen Antworttext zurück.
+
+    WICHTIG: ANTHROPIC_API_KEY wird aus der Subprozess-Umgebung entfernt, damit
+    Claude Code das Abo verwendet und NICHT den metered API-Key (sonst leckt die
+    Abrechnung über den Key statt übers Abo).
+    """
+    env = dict(os.environ)
+    env.pop("ANTHROPIC_API_KEY", None)
+
+    proc = subprocess.run(
+        [claude_path, "-p", "--output-format", "json", "--model", model],
+        input=prompt,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=env,
+        timeout=timeout,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"claude-CLI Exit {proc.returncode}: {(proc.stderr or '').strip()[:400]}"
+        )
+    try:
+        envelope = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        raise RuntimeError(f"claude-CLI lieferte kein JSON-Envelope: {proc.stdout[:300]}")
+
+    if envelope.get("is_error"):
+        raise RuntimeError(f"claude-CLI meldet Fehler: {str(envelope.get('result'))[:300]}")
+    return envelope.get("result", "") or ""
+
+
+def extract_json_object(text):
+    """Holt das JSON-Objekt aus der Modellantwort — robust gegen Markdown-Fences
+    und Text drumherum."""
+    text = (text or "").strip()
+    fence = re.match(r"^```[a-zA-Z]*\s*(.*?)\s*```$", text, re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        raise ValueError("Keine JSON-Struktur in der Antwort gefunden")
+    return json.loads(text[start:end + 1])
+
+
+def is_valid_analysis(a):
+    """Ersetzt das früher per tool_choice erzwungene Schema: prüft Pflichtfelder."""
+    if not isinstance(a, dict) or "faktenkern" not in a:
+        return False
+    fu = a.get("framing_unterschiede")
+    if not isinstance(fu, list) or not fu:
+        return False
+    for e in fu:
+        if not isinstance(e, dict):
+            return False
+        if not all(k in e for k in ("quelle", "label", "framing", "bias_score")):
+            return False
+    return True
+
+
+def analyze_cluster(claude_path, cluster):
+    """Analysiert einen Cluster über die Claude-CLI. Ein Retry bei ungültigem Output."""
+    base_prompt = (
+        SYSTEM_PROMPT
+        + "\n\n═══════════════ ZU ANALYSIERENDES THEMA ═══════════════\n"
+        + build_cluster_prompt(cluster)
+        + "\n\nGib AUSSCHLIESSLICH das JSON-Objekt zurück — kein Markdown-Codeblock, "
+          "kein erklärender Text davor oder danach."
     )
 
-    # Tool-Use-Antwort: Inhalt ist im 'input' des tool_use-Blocks
-    tool_block = next((b for b in response.content if b.type == "tool_use"), None)
-    if tool_block is None:
-        raise ValueError("Keine tool_use-Antwort von der API erhalten")
+    last_err = None
+    for attempt in range(2):
+        prompt = base_prompt
+        if attempt == 1:
+            prompt += (
+                "\n\nHINWEIS: Die vorige Antwort war ungültig. Antworte JETZT ausschließlich "
+                "mit dem reinen JSON-Objekt; jeder Eintrag in framing_unterschiede braucht "
+                "quelle, label, framing und bias_score."
+            )
+        raw = call_claude_cli(claude_path, prompt)
+        try:
+            analysis = extract_json_object(raw)
+        except (ValueError, json.JSONDecodeError) as e:
+            last_err = f"Parse-Fehler: {e}"
+            continue
+        if not is_valid_analysis(analysis):
+            last_err = "Pflichtfelder fehlen in der Analyse"
+            continue
+        return _sanitize_analysis(analysis)
 
-    analysis = _sanitize_analysis(dict(tool_block.input))
-
-    usage = response.usage
-    return analysis, {
-        "input_tokens": usage.input_tokens,
-        "output_tokens": usage.output_tokens,
-        "cache_creation_input_tokens": getattr(usage, "cache_creation_input_tokens", 0) or 0,
-        "cache_read_input_tokens": getattr(usage, "cache_read_input_tokens", 0) or 0,
-    }
-
-
-def calc_cost(usage):
-    return (
-        usage["input_tokens"] * COST_INPUT
-        + usage["output_tokens"] * COST_OUTPUT
-        + usage["cache_creation_input_tokens"] * COST_CACHE_WRITE
-        + usage["cache_read_input_tokens"] * COST_CACHE_READ
-    )
-
-
-def add_usage(total, delta):
-    for k in total:
-        total[k] += delta[k]
+    raise ValueError(last_err or "Analyse fehlgeschlagen")
 
 
 def main():
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        print("FEHLER: ANTHROPIC_API_KEY nicht gesetzt.")
-        print("Lege eine .env-Datei an: ANTHROPIC_API_KEY=sk-ant-...")
-        sys.exit(1)
+    claude_path = find_claude_cli()
 
     if len(sys.argv) > 1:
         input_file = sys.argv[1]
     else:
         input_file = find_latest_clusters_file()
 
-    print("News Agent — Framing-Analyse")
-    print("=" * 40)
+    print("Prisma — Framing-Analyse (über Claude-Abo, kein API-Key)")
+    print("=" * 50)
     print(f"Eingabe:  {input_file}")
-    print(f"Modell:   {MODEL}\n")
+    print(f"Modell:   {MODEL}")
+    print(f"CLI:      {claude_path}\n")
 
     data = load_clusters(input_file)
     all_clusters = data["clusters"]
     relevant = [c for c in all_clusters if c["spectrum_score"] >= MIN_SPECTRUM_SCORE]
 
     print(f"{len(all_clusters)} Cluster geladen")
-    print(f"{len(relevant)} Cluster mit Spektrum-Breite ≥ {MIN_SPECTRUM_SCORE} (werden analysiert)\n")
+    print(f"{len(relevant)} Cluster mit Spektrum-Breite >= {MIN_SPECTRUM_SCORE} (werden analysiert)\n")
 
     if not relevant:
         print("Keine relevanten Cluster gefunden.")
         return
 
-    client = anthropic.Anthropic(api_key=api_key)
-
-    # DB-Connection für Cache-Lookup — init_db() stellt sicher dass content_hash + Indexe existieren
+    # DB-Connection für Cache-Lookup — init_db() stellt content_hash + Indexe sicher
     db_conn = db.get_connection()
     db.init_db(db_conn)
 
     results = []
-    total_usage = {
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 0,
-    }
     error_count = 0
     cache_hits = 0
+    cli_calls = 0
 
     for i, cluster in enumerate(relevant, start=1):
         short_label = cluster["label"][:55]
         print(f"  [{i:2}/{len(relevant)}] {short_label}...", end=" ", flush=True)
 
-        # Idempotenz-Check: schon mal analysiert? (fail-safe: bei Fehler einfach API nutzen)
+        # Idempotenz-Check: schon mal analysiert? (fail-safe: bei Fehler einfach neu analysieren)
         cached = None
         try:
             chash = db.compute_cluster_hash(cluster["articles"])
             if chash:
                 cached = db.find_cached_analysis(db_conn, chash)
         except Exception as e:
-            print(f"(Cache-Lookup-Fehler, fahre mit API fort: {e})", end=" ")
+            print(f"(Cache-Lookup-Fehler, analysiere neu: {e})", end=" ")
 
         if cached:
             cache_hits += 1
@@ -367,15 +344,13 @@ def main():
                 "faktenkern": cached["faktenkern"],
                 "framing_unterschiede": cached["framing_unterschiede"],
                 "wortwahl_diff": cached["wortwahl_diff"],
-                "usage": {"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0},
             })
-            print("CACHE  (0 tok, $0.00)")
+            print("CACHE")
             continue
 
         try:
-            analysis, usage = analyze_cluster(client, cluster)
-            add_usage(total_usage, usage)
-
+            analysis = analyze_cluster(claude_path, cluster)
+            cli_calls += 1
             results.append({
                 "cluster_id": cluster["id"],
                 "label": cluster["label"],
@@ -385,61 +360,21 @@ def main():
                 "faktenkern": analysis.get("faktenkern", ""),
                 "framing_unterschiede": analysis.get("framing_unterschiede", []),
                 "wortwahl_diff": analysis.get("wortwahl_diff", []),
-                "usage": usage,
             })
+            print("OK")
 
-            cache_hit = usage["cache_read_input_tokens"] > 0
-            cache_info = " [cache-hit]" if cache_hit else ""
-            print(f"OK  ({usage['input_tokens']}+{usage['output_tokens']} tok){cache_info}")
-
-        except json.JSONDecodeError as e:
+        except subprocess.TimeoutExpired:
             error_count += 1
-            print(f"JSON-Fehler: {e}")
+            print(f"TIMEOUT (>{CLI_TIMEOUT}s)")
             results.append({
                 "cluster_id": cluster["id"],
                 "label": cluster["label"],
-                "error": f"JSON-Parse-Fehler: {e}",
+                "error": f"CLI-Timeout nach {CLI_TIMEOUT}s",
             })
 
-        except anthropic.RateLimitError:
-            print("Rate-Limit — 60s warten...")
-            time.sleep(60)
-            try:
-                analysis, usage = analyze_cluster(client, cluster)
-                add_usage(total_usage, usage)
-                results.append({
-                    "cluster_id": cluster["id"],
-                    "label": cluster["label"],
-                    "spectrum_score": cluster["spectrum_score"],
-                    "spectrum_labels": cluster["spectrum_labels"],
-                    "article_count": cluster["article_count"],
-                    "faktenkern": analysis.get("faktenkern", ""),
-                    "framing_unterschiede": analysis.get("framing_unterschiede", []),
-                    "wortwahl_diff": analysis.get("wortwahl_diff", []),
-                    "usage": usage,
-                })
-                print(f"OK (nach Retry)")
-            except Exception as e2:
-                error_count += 1
-                print(f"FEHLER nach Retry: {e2}")
-                results.append({
-                    "cluster_id": cluster["id"],
-                    "label": cluster["label"],
-                    "error": str(e2),
-                })
-
-        except anthropic.APIStatusError as e:
+        except Exception as e:
             error_count += 1
-            print(f"API-Fehler {e.status_code}: {e.message}")
-            results.append({
-                "cluster_id": cluster["id"],
-                "label": cluster["label"],
-                "error": f"API {e.status_code}: {e.message}",
-            })
-
-        except anthropic.APIConnectionError as e:
-            error_count += 1
-            print(f"Verbindungsfehler: {e}")
+            print(f"FEHLER: {str(e)[:80]}")
             results.append({
                 "cluster_id": cluster["id"],
                 "label": cluster["label"],
@@ -453,10 +388,10 @@ def main():
         "analyzed_at": datetime.now().isoformat(timespec="seconds"),
         "source_file": input_file,
         "model": MODEL,
+        "billing": "claude-subscription",
         "cluster_count_analyzed": len(results),
         "error_count": error_count,
-        "total_usage": total_usage,
-        "estimated_cost_usd": round(calc_cost(total_usage), 6),
+        "estimated_cost_usd": 0.0,  # über Abo abgerechnet, keine Pro-Call-Kosten
         "results": results,
     }
 
@@ -465,27 +400,14 @@ def main():
 
     db_conn.close()
 
-    total_cost = calc_cost(total_usage)
     success_count = len(results) - error_count
-    api_calls = success_count - cache_hits
-
     print(f"\nGespeichert: {output_file}")
-    print(f"{success_count} analysiert ({cache_hits} aus Cache, {api_calls} per API), {error_count} Fehler\n")
-
-    print("Token-Verbrauch:")
-    print(f"  Input (unkached):   {total_usage['input_tokens']:>8,}")
-    print(f"  Output:             {total_usage['output_tokens']:>8,}")
-    print(f"  Cache-Write:        {total_usage['cache_creation_input_tokens']:>8,}")
-    print(f"  Cache-Read:         {total_usage['cache_read_input_tokens']:>8,}")
-    print(f"\nGeschätzte Kosten:    ${total_cost:.4f}")
-    if cache_hits > 0:
-        avg_cost_per_call = total_cost / api_calls if api_calls > 0 else 0.018
-        saved = cache_hits * avg_cost_per_call
-        print(f"Gespart durch Cache:  ${saved:.4f} ({cache_hits} Cluster nicht erneut analysiert)")
+    print(f"{success_count} analysiert ({cache_hits} aus Cache, {cli_calls} per Claude-Abo), {error_count} Fehler")
+    print("Abrechnung: über Claude-Monatsabo (kein API-Key, keine Pro-Call-Kosten)\n")
 
     successes = [r for r in results if "error" not in r]
     if successes:
-        print("\nTop-3-Cluster mit bias_scores:")
+        print("Top-3-Cluster mit bias_scores:")
         for r in successes[:3]:
             print(f"\n  Thema: \"{r['label'][:70]}\"")
             print(f"  Faktenkern: {r['faktenkern'][:120]}...")
