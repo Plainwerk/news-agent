@@ -1,3 +1,4 @@
+import concurrent.futures
 import json
 import os
 import re
@@ -13,7 +14,18 @@ import db
 DATA_DIR = "data"
 MODEL = "claude-sonnet-4-6"
 MIN_SPECTRUM_SCORE = 2
-CLI_TIMEOUT = 240  # Sekunden pro Cluster-Analyse
+CLI_TIMEOUT = 180  # Sekunden pro Cluster-Analyse (ohne Thinking ~20-60s)
+
+# Tools, die Claude Code für einen reinen JSON-Extraktions-Task nie braucht.
+# Verhindert teure Umwege (z.B. WebSearch zu Nachrichtenthemen).
+DISALLOWED_TOOLS = [
+    "WebSearch", "WebFetch", "Bash", "Read", "Glob", "Grep", "Edit", "Write", "TodoWrite",
+]
+
+# Wie viele Cluster gleichzeitig analysiert werden (jeder Call ist ein eigener
+# claude-Prozess). 4 ist ein guter Kompromiss aus Tempo und Abo-Last; per
+# Umgebungsvariable überschreibbar.
+CONCURRENCY = int(os.environ.get("PRISMA_CONCURRENCY", "4"))
 
 SYSTEM_PROMPT = """Du bist ein Werkzeug für Medienanalyse. Deine Aufgabe ist Beobachten, nicht Bewerten. Du beschreibst was sprachlich passiert — du interpretierst nicht, was es bedeutet.
 
@@ -60,7 +72,11 @@ Antworte ausschließlich mit gültigem JSON in folgendem Format (kein Markdown, 
    • Was lässt der Titel weg, das andere Titel erwähnen?
    • Wird ein Aspekt des Ereignisses besonders hervorgehoben?
 
-  Zitiere auffällige Begriffe direkt in „Anführungszeichen".
+  Zitiere auffällige Begriffe direkt in 'einfachen Anführungszeichen'.
+
+  TECHNISCH WICHTIG: Innerhalb der JSON-String-Werte NIEMALS gerade doppelte
+  Anführungszeichen (") verwenden — sie zerbrechen das JSON. Für zitierte
+  Begriffe ausschließlich einfache Anführungszeichen ' benutzen.
 
   NICHT erlaubt — das sind Interpretationen:
     ✗ "berichtet kritisch"
@@ -192,8 +208,17 @@ def find_claude_cli():
     return path
 
 
-def call_claude_cli(claude_path, prompt, model=MODEL, timeout=CLI_TIMEOUT):
+def call_claude_cli(claude_path, user_prompt, model=MODEL, timeout=CLI_TIMEOUT):
     """Ruft `claude -p` headless auf und gibt den reinen Antworttext zurück.
+
+    Schlank konfiguriert, damit die Calls schnell sind (sonst Minuten statt
+    Sekunden pro Cluster):
+    - `--system-prompt SYSTEM_PROMPT` ersetzt den agentischen Claude-Code-Default
+      durch die reine Analyse-Anweisung (kein Tool-/Agent-Scaffold).
+    - `--strict-mcp-config` ohne MCP-Config → es werden keine MCP-Server geladen.
+    - `--disallowed-tools …` verhindert Tool-Umwege (z.B. WebSearch).
+    - MAX_THINKING_TOKENS=0 schaltet Extended Thinking ab — das war die
+      eigentliche Bremse (3x langsamer, ~2300 Denk-Tokens pro Cluster umsonst).
 
     WICHTIG: ANTHROPIC_API_KEY wird aus der Subprozess-Umgebung entfernt, damit
     Claude Code das Abo verwendet und NICHT den metered API-Key (sonst leckt die
@@ -201,10 +226,19 @@ def call_claude_cli(claude_path, prompt, model=MODEL, timeout=CLI_TIMEOUT):
     """
     env = dict(os.environ)
     env.pop("ANTHROPIC_API_KEY", None)
+    env["MAX_THINKING_TOKENS"] = "0"
 
+    cmd = [
+        claude_path, "-p",
+        "--output-format", "json",
+        "--model", model,
+        "--strict-mcp-config",
+        "--disallowed-tools", *DISALLOWED_TOOLS,
+        "--system-prompt", SYSTEM_PROMPT,
+    ]
     proc = subprocess.run(
-        [claude_path, "-p", "--output-format", "json", "--model", model],
-        input=prompt,
+        cmd,
+        input=user_prompt,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -226,8 +260,9 @@ def call_claude_cli(claude_path, prompt, model=MODEL, timeout=CLI_TIMEOUT):
 
 
 def extract_json_object(text):
-    """Holt das JSON-Objekt aus der Modellantwort — robust gegen Markdown-Fences
-    und Text drumherum."""
+    """Holt das JSON-Objekt aus der Modellantwort — robust gegen Markdown-Fences,
+    Text drumherum und (ohne Thinking häufiger) unescapte Anführungszeichen in
+    String-Werten. Versucht erst strikt zu parsen, dann json-repair als Netz."""
     text = (text or "").strip()
     fence = re.match(r"^```[a-zA-Z]*\s*(.*?)\s*```$", text, re.DOTALL)
     if fence:
@@ -235,7 +270,14 @@ def extract_json_object(text):
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end == -1 or end < start:
         raise ValueError("Keine JSON-Struktur in der Antwort gefunden")
-    return json.loads(text[start:end + 1])
+    snippet = text[start:end + 1]
+    try:
+        return json.loads(snippet)
+    except json.JSONDecodeError:
+        # z.B. gerade " innerhalb eines Werts -> json-repair flickt das Escaping
+        from json_repair import repair_json
+        repaired = repair_json(snippet)
+        return json.loads(repaired)
 
 
 def is_valid_analysis(a):
@@ -255,10 +297,10 @@ def is_valid_analysis(a):
 
 def analyze_cluster(claude_path, cluster):
     """Analysiert einen Cluster über die Claude-CLI. Ein Retry bei ungültigem Output."""
+    # SYSTEM_PROMPT läuft über den --system-prompt-Flag (siehe call_claude_cli);
+    # hier nur noch die konkreten Cluster-Daten.
     base_prompt = (
-        SYSTEM_PROMPT
-        + "\n\n═══════════════ ZU ANALYSIERENDES THEMA ═══════════════\n"
-        + build_cluster_prompt(cluster)
+        build_cluster_prompt(cluster)
         + "\n\nGib AUSSCHLIESSLICH das JSON-Objekt zurück — kein Markdown-Codeblock, "
           "kein erklärender Text davor oder danach."
     )
@@ -311,75 +353,82 @@ def main():
         print("Keine relevanten Cluster gefunden.")
         return
 
-    # DB-Connection für Cache-Lookup — init_db() stellt content_hash + Indexe sicher
+    # 1) Cache-Lookups seriell vorab (SQLite-Connection ist nicht thread-safe).
     db_conn = db.get_connection()
     db.init_db(db_conn)
-
-    results = []
-    error_count = 0
-    cache_hits = 0
-    cli_calls = 0
-
-    for i, cluster in enumerate(relevant, start=1):
-        short_label = cluster["label"][:55]
-        print(f"  [{i:2}/{len(relevant)}] {short_label}...", end=" ", flush=True)
-
-        # Idempotenz-Check: schon mal analysiert? (fail-safe: bei Fehler einfach neu analysieren)
+    cached_map = {}        # idx -> Analyse aus Cache
+    todo = []              # [(idx, cluster)] die übers Abo analysiert werden
+    for idx, cluster in enumerate(relevant):
         cached = None
         try:
             chash = db.compute_cluster_hash(cluster["articles"])
             if chash:
                 cached = db.find_cached_analysis(db_conn, chash)
-        except Exception as e:
-            print(f"(Cache-Lookup-Fehler, analysiere neu: {e})", end=" ")
-
+        except Exception:
+            cached = None
         if cached:
-            cache_hits += 1
-            results.append({
-                "cluster_id": cluster["id"],
-                "label": cluster["label"],
-                "spectrum_score": cluster["spectrum_score"],
-                "spectrum_labels": cluster["spectrum_labels"],
-                "article_count": cluster["article_count"],
-                "faktenkern": cached["faktenkern"],
-                "framing_unterschiede": cached["framing_unterschiede"],
-                "wortwahl_diff": cached["wortwahl_diff"],
-            })
-            print("CACHE")
-            continue
+            cached_map[idx] = cached
+        else:
+            todo.append((idx, cluster))
+    db_conn.close()
 
+    cache_hits = len(cached_map)
+    total = len(todo)
+    print(f"{cache_hits} aus Cache, {total} werden übers Abo analysiert "
+          f"(parallel, {CONCURRENCY} gleichzeitig, Thinking aus)\n")
+
+    # 2) Analysen parallel — analyze_cluster ruft nur subprocess + Parsing, keine DB.
+    def work(item):
+        idx, cluster = item
         try:
-            analysis = analyze_cluster(claude_path, cluster)
-            cli_calls += 1
-            results.append({
-                "cluster_id": cluster["id"],
-                "label": cluster["label"],
-                "spectrum_score": cluster["spectrum_score"],
-                "spectrum_labels": cluster["spectrum_labels"],
-                "article_count": cluster["article_count"],
-                "faktenkern": analysis.get("faktenkern", ""),
-                "framing_unterschiede": analysis.get("framing_unterschiede", []),
-                "wortwahl_diff": analysis.get("wortwahl_diff", []),
-            })
-            print("OK")
-
+            return idx, ("ok", analyze_cluster(claude_path, cluster))
         except subprocess.TimeoutExpired:
-            error_count += 1
-            print(f"TIMEOUT (>{CLI_TIMEOUT}s)")
-            results.append({
-                "cluster_id": cluster["id"],
-                "label": cluster["label"],
-                "error": f"CLI-Timeout nach {CLI_TIMEOUT}s",
-            })
-
+            return idx, ("err", f"CLI-Timeout nach {CLI_TIMEOUT}s")
         except Exception as e:
+            return idx, ("err", str(e))
+
+    analyzed_map = {}
+    if todo:
+        done = 0
+        with concurrent.futures.ThreadPoolExecutor(max_workers=CONCURRENCY) as ex:
+            futs = [ex.submit(work, item) for item in todo]
+            for fut in concurrent.futures.as_completed(futs):
+                idx, outcome = fut.result()
+                analyzed_map[idx] = outcome
+                done += 1
+                label = relevant[idx]["label"][:50]
+                status = "OK" if outcome[0] == "ok" else f"FEHLER: {outcome[1][:50]}"
+                print(f"  [{done:2}/{total}] {label} … {status}", flush=True)
+
+    # 3) Ergebnisse in Original-Reihenfolge zusammenführen.
+    results = []
+    error_count = 0
+    cli_calls = 0
+    for idx, cluster in enumerate(relevant):
+        base = {
+            "cluster_id": cluster["id"],
+            "label": cluster["label"],
+            "spectrum_score": cluster["spectrum_score"],
+            "spectrum_labels": cluster["spectrum_labels"],
+            "article_count": cluster["article_count"],
+        }
+        if idx in cached_map:
+            c = cached_map[idx]
+            results.append({**base,
+                            "faktenkern": c["faktenkern"],
+                            "framing_unterschiede": c["framing_unterschiede"],
+                            "wortwahl_diff": c["wortwahl_diff"]})
+            continue
+        kind, value = analyzed_map[idx]
+        if kind == "ok":
+            cli_calls += 1
+            results.append({**base,
+                            "faktenkern": value.get("faktenkern", ""),
+                            "framing_unterschiede": value.get("framing_unterschiede", []),
+                            "wortwahl_diff": value.get("wortwahl_diff", [])})
+        else:
             error_count += 1
-            print(f"FEHLER: {str(e)[:80]}")
-            results.append({
-                "cluster_id": cluster["id"],
-                "label": cluster["label"],
-                "error": str(e),
-            })
+            results.append({"cluster_id": cluster["id"], "label": cluster["label"], "error": value})
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     output_file = os.path.join(DATA_DIR, f"framing_{timestamp}.json")

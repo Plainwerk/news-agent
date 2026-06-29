@@ -9,8 +9,10 @@ scikit-learn==1.8.0
 numpy==2.4.4
 
 # Framing-Analyse (Phase 3) — laeuft ueber die lokale Claude-Code-CLI (`claude`),
-# abgerechnet ueber das Monatsabo. Keine Python-LLM-Dependency, kein API-Key noetig.
+# abgerechnet ueber das Monatsabo. Kein API-Key noetig.
 # Voraussetzung: Claude Code installiert und angemeldet (siehe README).
+# json-repair flickt gelegentlich unescapte Anfuehrungszeichen im Modell-Output.
+json-repair>=0.30.0
 
 # API + App (Phase 4)
 fastapi>=0.115.0
